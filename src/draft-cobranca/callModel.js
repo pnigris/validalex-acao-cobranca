@@ -5,10 +5,15 @@ async function callModel({ prompt }) {
   if (!apiKey) throw new Error("OPENAI_API_KEY não configurado");
 
   const model = process.env.OPENAI_MODEL || "gpt-4.1";
-
   const url = "https://api.openai.com/v1/responses";
 
-  // Formato correto da Responses API
+  // Log do payload enviado
+  console.log("CALLMODEL → Payload enviado:", {
+    model,
+    system: prompt.system?.slice(0, 200),
+    user: prompt.user?.slice(0, 200)
+  });
+
   const payload = {
     model,
     input: [
@@ -27,9 +32,16 @@ async function callModel({ prompt }) {
     body: JSON.stringify(payload)
   });
 
+  // Log do status HTTP
+  console.log("CALLMODEL → Status HTTP:", r.status);
+
   const text = await safeText(r);
 
+  // Log da resposta bruta da OpenAI
+  console.log("CALLMODEL → RAW TEXT:", text);
+
   if (!r.ok) {
+    console.log("CALLMODEL → ERRO DA OPENAI:", text);
     throw new Error(`OpenAI error ${r.status}: ${text}`);
   }
 
@@ -37,14 +49,20 @@ async function callModel({ prompt }) {
   try {
     json = JSON.parse(text);
   } catch (e) {
+    console.log("CALLMODEL → FALHA NO PARSE JSON:", e.message);
     throw new Error(`Resposta inválida da OpenAI: ${e.message}`);
   }
 
-  // Responses API: output_text é o campo principal
+  // Log do JSON parseado
+  console.log("CALLMODEL → JSON PARSEADO:", json);
+
   const outputText =
     typeof json.output_text === "string"
       ? json.output_text
       : extractText(json);
+
+  // Log do texto final extraído
+  console.log("CALLMODEL → OUTPUT TEXT:", outputText);
 
   return {
     model,
@@ -73,6 +91,3 @@ async function safeText(r) {
 }
 
 module.exports = { callModel };
-
-
-  
