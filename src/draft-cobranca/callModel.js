@@ -32,12 +32,11 @@ async function callModel({ prompt }) {
     body: JSON.stringify(payload)
   });
 
-  // Log do status HTTP
   console.log("CALLMODEL → Status HTTP:", r.status);
 
   const text = await safeText(r);
 
-  // Log da resposta bruta da OpenAI
+  // Log da resposta bruta
   console.log("CALLMODEL → RAW TEXT:", text);
 
   if (!r.ok) {
@@ -53,15 +52,11 @@ async function callModel({ prompt }) {
     throw new Error(`Resposta inválida da OpenAI: ${e.message}`);
   }
 
-  // Log do JSON parseado
   console.log("CALLMODEL → JSON PARSEADO:", json);
 
-  const outputText =
-    typeof json.output_text === "string"
-      ? json.output_text
-      : extractText(json);
+  // Extração correta do texto da Responses API
+  const outputText = extractOutputText(json);
 
-  // Log do texto final extraído
   console.log("CALLMODEL → OUTPUT TEXT:", outputText);
 
   return {
@@ -71,13 +66,22 @@ async function callModel({ prompt }) {
   };
 }
 
-function extractText(resp) {
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                     */
+/* -------------------------------------------------------------------------- */
+
+function extractOutputText(resp) {
   try {
     if (Array.isArray(resp.output)) {
-      return resp.output
-        .map(o => o.content || "")
-        .join("\n")
-        .trim();
+      for (const msg of resp.output) {
+        if (Array.isArray(msg.content)) {
+          for (const c of msg.content) {
+            if (c.type === "output_text" && typeof c.text === "string") {
+              return c.text.trim();
+            }
+          }
+        }
+      }
     }
     return "";
   } catch {
