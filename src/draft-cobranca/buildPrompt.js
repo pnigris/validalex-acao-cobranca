@@ -17,8 +17,6 @@ function buildPrompt(data, { templateVersion, promptVersion }) {
 
   /**
    * Regras fixas anti-alucinação (exclusivo para AÇÃO DE COBRANÇA)
-   * Observação: "fundamentos legais" e "artigos" só podem ser usados se estiverem
-   * explicitamente no templateGuidance OU nos dados fornecidos em inputData.
    */
   const systemRules = [
     "Você é um Assistente Jurídico Sênior, especializado em redação de petições iniciais no Brasil.",
@@ -38,25 +36,36 @@ function buildPrompt(data, { templateVersion, promptVersion }) {
     "- Linguagem formal, técnica, clara, impessoal e conservadora (padrão de escritório).",
     "- Organize a peça com subtítulos e parágrafos objetivos; evite retórica e adjetivação excessiva.",
     "",
-    "4) SAÍDA E FORMATAÇÃO:",
+    "4) SAÍDA E FORMATAÇÃO (ESTRUTURA EXATA):",
     "- Responda OBRIGATORIAMENTE em JSON válido, SEM markdown e SEM texto fora do JSON.",
-    "- Produza as seções no formato de texto corrido (strings).",
-    "- Não inclua comentários, explicações ou conteúdo fora do esquema de saída.",
+    "- O JSON DEVE ter EXATAMENTE a seguinte estrutura de topo:",
+    "  {",
+    "    \"sections\": {",
+    "      \"enderecamento\": string,",
+    "      \"qualificacao\": string,",
+    "      \"fatos\": string,",
+    "      \"direito\": string,",
+    "      \"pedidos\": string,",
+    "      \"valor_causa\": string,",
+    "      \"requerimentos_finais\": string",
+    "    },",
+    "    \"alerts\": [ { \"level\": \"info|warn|error\", \"code\": string, \"message\": string } ],",
+    "    \"meta\": { \"promptVersion\": string, \"templateVersion\": string }",
+    "  }",
+    "- NÃO coloque campos como 'enderecamento', 'qualificacao', etc. soltos na raiz. Eles DEVEM estar dentro de 'sections'.",
+    "- Não inclua comentários, explicações ou conteúdo fora desse esquema.",
   ].join("\n");
 
-  // Schema esperado da saída (Ação de Cobrança)
+  // Schema esperado da saída (Ação de Cobrança) – ALINHADO COM parseModel/assemble
   const outputSchema = {
     sections: {
       enderecamento: "string",
       qualificacao: "string",
       fatos: "string",
-      fundamentos_juridicos: "string",
+      direito: "string",
       pedidos: "string",
       valor_causa: "string",
-      provas: "string",
-      requerimentos_finais: "string",
-      checklist_revisao: "string",
-      alertas_risco: "string"
+      requerimentos_finais: "string"
     },
     alerts: [{ level: "info|warn|error", code: "string", message: "string" }],
     meta: { promptVersion: "string", templateVersion: "string" }
@@ -79,14 +88,11 @@ function buildPrompt(data, { templateVersion, promptVersion }) {
       requiredStructure: [
         "Endereçamento",
         "Qualificação das Partes",
-        "Síntese dos Fatos",
-        "Fundamentos Jurídicos",
-        "Pedidos",
-        "Valor da Causa",
-        "Provas",
-        "Requerimentos Finais",
-        "Checklist de Revisão",
-        "Alertas Técnicos e Riscos"
+        "Dos Fatos",
+        "Do Direito",
+        "Dos Pedidos",
+        "Do Valor da Causa",
+        "Requerimentos Finais"
       ],
       templateGuidance: tpl,
       sectionGuidance,
@@ -121,21 +127,15 @@ function buildSectionGuidance(tpl) {
     };
   }
 
-  /**
-   * Garante que as chaves esperadas existam no guidance, mesmo se o template
-   * não estiver completo (sem inventar conteúdo — apenas fornece "casca" de orientação).
-   */
+  // Garante que as chaves esperadas existam no guidance
   const ensureKeys = [
     "enderecamento",
     "qualificacao",
     "fatos",
-    "fundamentos_juridicos",
+    "direito",
     "pedidos",
     "valor_causa",
-    "provas",
-    "requerimentos_finais",
-    "checklist_revisao",
-    "alertas_risco"
+    "requerimentos_finais"
   ];
 
   for (const k of ensureKeys) {
@@ -148,5 +148,6 @@ function buildSectionGuidance(tpl) {
 }
 
 module.exports = { buildPrompt };
+
 
 
