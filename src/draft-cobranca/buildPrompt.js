@@ -15,29 +15,48 @@ function buildPrompt(data, { templateVersion, promptVersion }) {
     throw new Error(`Falha ao carregar template ${templateVersion}: ${e.message}`);
   }
 
-  // Regras fixas anti-alucinação
+  /**
+   * Regras fixas anti-alucinação (exclusivo para AÇÃO DE COBRANÇA)
+   * Observação: "fundamentos legais" e "artigos" só podem ser usados se estiverem
+   * explicitamente no templateGuidance OU nos dados fornecidos em inputData.
+   */
   const systemRules = [
-    "Você é um assistente jurídico especializado em petições iniciais no Brasil.",
-    "Gere apenas um rascunho técnico de PETIÇÃO INICIAL de AÇÃO DE COBRANÇA SIMPLES.",
-    "Não invente fatos, valores, datas, partes, endereços, documentos, tentativas extrajudiciais ou qualquer informação não fornecida.",
-    "Use estritamente os dados fornecidos em inputData.",
-    "Se faltar algum dado essencial, registre um alerta em 'alerts' e produza texto neutro indicando necessidade de complementação.",
-    "Responda OBRIGATORIAMENTE em JSON válido, SEM markdown, SEM texto fora do JSON.",
-    "Cada seção deve respeitar as orientações de tamanho e estilo definidas em sectionGuidance.",
-    "Nunca cite jurisprudência específica, números de processos ou artigos não mencionados no template.",
-    "Mantenha tom técnico, objetivo e conservador."
+    "Você é um Assistente Jurídico Sênior, especializado em redação de petições iniciais no Brasil.",
+    "Gere apenas um RASCUNHO TÉCNICO de PETIÇÃO INICIAL de AÇÃO DE COBRANÇA (cobrança simples). Não é aconselhamento final.",
+    "",
+    "REGRAS OBRIGATÓRIAS (NÃO FLEXÍVEIS):",
+    "1) PROIBIÇÃO ABSOLUTA DE INVENÇÃO:",
+    "- NÃO invente fatos, datas, valores, juros, índices, endereços, qualificação, documentos, tentativas extrajudiciais, pedidos ou qualquer informação não fornecida.",
+    "- NÃO crie jurisprudência, números de processos, nomes de tribunais, e NÃO cite artigos de lei que não estejam no templateGuidance ou expressamente informados no inputData.",
+    "",
+    "2) BASE DE DADOS:",
+    "- Use estritamente os dados fornecidos em inputData.",
+    "- Se faltar dado essencial, marque no texto como: [PENDENTE – informação não fornecida] e registre um alerta em alerts.",
+    "- Se houver inconsistência (ex.: valores/datas conflitantes), NÃO escolha por conta própria: registre alerta e use redação neutra.",
+    "",
+    "3) PADRÃO DE REDAÇÃO:",
+    "- Linguagem formal, técnica, clara, impessoal e conservadora (padrão de escritório).",
+    "- Organize a peça com subtítulos e parágrafos objetivos; evite retórica e adjetivação excessiva.",
+    "",
+    "4) SAÍDA E FORMATAÇÃO:",
+    "- Responda OBRIGATORIAMENTE em JSON válido, SEM markdown e SEM texto fora do JSON.",
+    "- Produza as seções no formato de texto corrido (strings).",
+    "- Não inclua comentários, explicações ou conteúdo fora do esquema de saída.",
   ].join("\n");
 
-  // Schema esperado da saída
+  // Schema esperado da saída (Ação de Cobrança)
   const outputSchema = {
     sections: {
       enderecamento: "string",
       qualificacao: "string",
       fatos: "string",
-      direito: "string",
+      fundamentos_juridicos: "string",
       pedidos: "string",
       valor_causa: "string",
-      requerimentos_finais: "string"
+      provas: "string",
+      requerimentos_finais: "string",
+      checklist_revisao: "string",
+      alertas_risco: "string"
     },
     alerts: [{ level: "info|warn|error", code: "string", message: "string" }],
     meta: { promptVersion: "string", templateVersion: "string" }
@@ -50,7 +69,25 @@ function buildPrompt(data, { templateVersion, promptVersion }) {
   let userInstruction;
   try {
     userInstruction = JSON.stringify({
-      task: "Gerar petição inicial de ação de cobrança simples (rascunho revisável).",
+      task: "Gerar petição inicial de Ação de Cobrança (rascunho revisável).",
+      constraints: {
+        forbidHallucination: true,
+        pendingMarker: "[PENDENTE – informação não fornecida]",
+        noCaseLawUnlessProvided: true,
+        lawArticlesOnlyIfProvidedInTemplateOrInput: true
+      },
+      requiredStructure: [
+        "Endereçamento",
+        "Qualificação das Partes",
+        "Síntese dos Fatos",
+        "Fundamentos Jurídicos",
+        "Pedidos",
+        "Valor da Causa",
+        "Provas",
+        "Requerimentos Finais",
+        "Checklist de Revisão",
+        "Alertas Técnicos e Riscos"
+      ],
       templateGuidance: tpl,
       sectionGuidance,
       inputData: data,
@@ -82,6 +119,29 @@ function buildSectionGuidance(tpl) {
       maxParagraphs: cfg.maxParagraphs || 3,
       notes: cfg.notes || ""
     };
+  }
+
+  /**
+   * Garante que as chaves esperadas existam no guidance, mesmo se o template
+   * não estiver completo (sem inventar conteúdo — apenas fornece "casca" de orientação).
+   */
+  const ensureKeys = [
+    "enderecamento",
+    "qualificacao",
+    "fatos",
+    "fundamentos_juridicos",
+    "pedidos",
+    "valor_causa",
+    "provas",
+    "requerimentos_finais",
+    "checklist_revisao",
+    "alertas_risco"
+  ];
+
+  for (const k of ensureKeys) {
+    if (!out[k]) {
+      out[k] = { minParagraphs: 1, maxParagraphs: 3, notes: "" };
+    }
   }
 
   return out;
