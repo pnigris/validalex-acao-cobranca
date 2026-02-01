@@ -17,12 +17,10 @@ module.exports = async (req, res) => {
   const startedAt = Date.now();
 
   try {
-    // Apenas POST
     if (req.method !== "POST") {
       return badRequest(res, "Use POST em /api/draft/cobranca");
     }
 
-    // Autenticação
     try {
       requireAuth(req);
     } catch (e) {
@@ -30,7 +28,6 @@ module.exports = async (req, res) => {
       return unauthorized(res, "Não autorizado");
     }
 
-    // Rate limit
     const ip = getIp(req);
     const limitPerMin = parseInt(process.env.RATE_LIMIT_PER_MINUTE || "30", 10);
     const rl = rateLimit({ key: ip, limit: limitPerMin, windowMs: 60_000 });
@@ -38,7 +35,6 @@ module.exports = async (req, res) => {
       return tooManyRequests(res, "Muitas requisições. Tente novamente em instantes.", rl);
     }
 
-    // Body JSON
     const body = await readJson(req);
     const jobId = safeString(body.jobId) || `job_${Date.now()}`;
     const userId = safeString(body.userId) || "anon";
@@ -48,10 +44,8 @@ module.exports = async (req, res) => {
       return badRequest(res, "Campo 'data' inválido (JSON).");
     }
 
-    // Validação determinística
     const v = validateDraftCobranca(data, { schema });
 
-    // Se faltar campo crítico → não chama IA
     if (v.missingCritical.length > 0) {
       const html = renderHtmlRelatorio({
         title: "Rascunho NÃO gerado – faltam dados críticos",
@@ -101,19 +95,15 @@ module.exports = async (req, res) => {
       });
     }
 
-    // Monta prompt
     const prompt = buildPrompt(data, {
       templateVersion: "cobranca_v1",
       promptVersion: "cobranca-1.0.0"
     });
 
-    // Chama modelo
     const modelRaw = await callModel({ prompt });
 
-    // Parse do JSON retornado
     const parsed = parseModelOutput(modelRaw);
 
-    // Monta HTML final (com alertas agrupados)
     const assembled = assembleHtml({
       data,
       sections: parsed.sections,
@@ -214,4 +204,5 @@ function hashLite(s) {
   }
   return `h${(h >>> 0).toString(16)}`;
 }
+
 

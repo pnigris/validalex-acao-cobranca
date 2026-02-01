@@ -1,4 +1,4 @@
-/* src/draft-cobranca/parseModelOutput.js */
+/* src/draft-cobranca/parseModel.js */
 
 const fs = require("fs");
 const path = require("path");
@@ -7,7 +7,6 @@ function parseModelOutput(modelRaw) {
   const text = (modelRaw && modelRaw.text) ? String(modelRaw.text).trim() : "";
   if (!text) throw new Error("Modelo retornou resposta vazia.");
 
-  // Tenta parsear JSON diretamente
   let obj;
   try {
     obj = JSON.parse(text);
@@ -21,10 +20,8 @@ function parseModelOutput(modelRaw) {
     throw new Error("JSON do modelo inválido: faltou 'sections'.");
   }
 
-  // Carrega sectionGuidance do template
   const guidance = loadSectionGuidance();
 
-  // Normaliza seções
   const sections = {
     enderecamento: safeStr(obj.sections.enderecamento),
     qualificacao: safeStr(obj.sections.qualificacao),
@@ -35,13 +32,10 @@ function parseModelOutput(modelRaw) {
     requerimentos_finais: safeStr(obj.sections.requerimentos_finais)
   };
 
-  // Valida limites de parágrafos
   const paragraphAlerts = validateParagraphLimits(sections, guidance);
 
-  // Normaliza alerts do modelo
   const modelAlerts = Array.isArray(obj.alerts) ? obj.alerts.map(normAlert) : [];
 
-  // Junta alerts do modelo + alerts de parágrafo
   const alerts = [...modelAlerts, ...paragraphAlerts];
 
   const meta = obj.meta && typeof obj.meta === "object" ? obj.meta : {};
@@ -59,8 +53,7 @@ function loadSectionGuidance() {
     const raw = fs.readFileSync(tplPath, "utf8");
     const tpl = JSON.parse(raw);
     return tpl.sectionGuidance || {};
-  } catch (e) {
-    // fallback seguro
+  } catch {
     return {};
   }
 }
@@ -75,7 +68,7 @@ function validateParagraphLimits(sections, guidance) {
     const paragraphs = splitParagraphs(text);
     const count = paragraphs.length;
 
-    if (count < cfg.minParagraphs) {
+    if (typeof cfg.minParagraphs === "number" && count < cfg.minParagraphs) {
       alerts.push({
         level: "warn",
         code: "PARAGRAPH_TOO_SHORT",
@@ -83,7 +76,7 @@ function validateParagraphLimits(sections, guidance) {
       });
     }
 
-    if (count > cfg.maxParagraphs) {
+    if (typeof cfg.maxParagraphs === "number" && count > cfg.maxParagraphs) {
       alerts.push({
         level: "warn",
         code: "PARAGRAPH_TOO_LONG",
@@ -125,3 +118,4 @@ function extractFirstJson(text) {
 }
 
 module.exports = { parseModelOutput };
+

@@ -1,11 +1,15 @@
-/* api/shared/htmlRender.js - HTML final para htmlRelatorio (versão revisada) */
+/* api/shared/htmlRender.js - HTML final para htmlRelatorio (versão revisada e robusta) */
 
 function renderHtmlRelatorio({ title, subtitle, alertsForHtml, sections, meta }) {
   const safeTitle = esc(title || "");
   const safeSubtitle = esc(subtitle || "");
 
-  const alertsHtml = renderGroupedAlerts(alertsForHtml || {});
-  const sectionsHtml = (sections || []).map(renderSection).join("\n");
+  const groupedAlerts = normalizeGroupedAlerts(alertsForHtml);
+  const alertsHtml = renderGroupedAlerts(groupedAlerts);
+
+  const sectionsArray = Array.isArray(sections) ? sections : [];
+  const sectionsHtml = sectionsArray.map(renderSection).join("\n");
+
   const metaHtml = renderMeta(meta || {});
 
   return `
@@ -58,11 +62,23 @@ function renderHtmlRelatorio({ title, subtitle, alertsForHtml, sections, meta })
 }
 
 /* -------------------------------------------------------------------------- */
+/* Normalização de alertas                                                     */
+/* -------------------------------------------------------------------------- */
+
+function normalizeGroupedAlerts(a) {
+  return {
+    error: Array.isArray(a?.error) ? a.error : [],
+    warn: Array.isArray(a?.warn) ? a.warn : [],
+    info: Array.isArray(a?.info) ? a.info : []
+  };
+}
+
+/* -------------------------------------------------------------------------- */
 /* Renderização de alertas agrupados                                           */
 /* -------------------------------------------------------------------------- */
 
 function renderGroupedAlerts(grouped) {
-  const { error = [], warn = [], info = [] } = grouped;
+  const { error, warn, info } = grouped;
 
   if (error.length + warn.length + info.length === 0) return "";
 
@@ -113,10 +129,13 @@ function renderSection(s) {
 /* -------------------------------------------------------------------------- */
 
 function renderMeta(meta) {
-  const kv = Object.entries(meta || {})
+  const entries = Object.entries(meta || {});
+  if (entries.length === 0) return "";
+
+  const kv = entries
     .map(([k, v]) => `<div><span class="muted">${esc(k)}</span>: <span class="muted">${esc(String(v))}</span></div>`)
     .join("");
-  if (!kv) return "";
+
   return `<hr/><div class="muted">${kv}</div>`;
 }
 
@@ -134,5 +153,6 @@ function esc(s) {
 }
 
 module.exports = { renderHtmlRelatorio };
+
 
   

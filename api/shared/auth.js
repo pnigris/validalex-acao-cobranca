@@ -1,23 +1,26 @@
-/* api/shared/auth.js - valida token vindo do Wix */
+/* api/shared/auth.js */
 
 function requireAuth(req) {
-    const expected = process.env.VALIDALEX_SHARED_TOKEN;
-    if (!expected) throw new Error("VALIDALEX_SHARED_TOKEN não configurado");
-  
-    // Aceita "Authorization: Bearer <token>" ou "x-validalex-token"
-    const auth = req.headers["authorization"];
-    const xTok = req.headers["x-validalex-token"];
-  
-    const token =
-      (typeof auth === "string" && auth.toLowerCase().startsWith("bearer "))
-        ? auth.slice(7).trim()
-        : (typeof xTok === "string" ? xTok.trim() : "");
-  
-    if (!token) throw new Error("Token ausente");
-    if (token !== expected) throw new Error("Token inválido");
-  
-    return true;
+  const expected = process.env.VALIDALEX_SHARED_TOKEN;
+  if (!expected) throw new Error("VALIDALEX_SHARED_TOKEN não configurado");
+
+  const authHeader = req.headers["authorization"] || req.headers["Authorization"];
+  const xTok = req.headers["x-validalex-token"];
+
+  let token = "";
+
+  if (typeof authHeader === "string" && authHeader.trim().toLowerCase().startsWith("bearer ")) {
+    token = authHeader.trim().slice(7).trim();
+  } else if (typeof xTok === "string") {
+    token = xTok.trim();
   }
-  
-  module.exports = { requireAuth };
+
+  if (!token) throw new Error("Token ausente");
+  if (token !== expected) throw new Error("Token inválido");
+
+  return true;
+}
+
+module.exports = { requireAuth };
+
   

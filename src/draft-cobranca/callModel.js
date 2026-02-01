@@ -7,7 +7,6 @@ async function callModel({ prompt }) {
   const model = process.env.OPENAI_MODEL || "gpt-4.1";
   const url = "https://api.openai.com/v1/responses";
 
-  // Log do payload enviado
   console.log("CALLMODEL → Payload enviado:", {
     model,
     system: prompt.system?.slice(0, 200),
@@ -36,7 +35,6 @@ async function callModel({ prompt }) {
 
   const text = await safeText(r);
 
-  // Log da resposta bruta
   console.log("CALLMODEL → RAW TEXT:", text);
 
   if (!r.ok) {
@@ -54,8 +52,12 @@ async function callModel({ prompt }) {
 
   console.log("CALLMODEL → JSON PARSEADO:", json);
 
-  // Extração correta do texto da Responses API
   const outputText = extractOutputText(json);
+
+  if (!outputText) {
+    console.log("CALLMODEL → OUTPUT TEXT VAZIO");
+    throw new Error("Modelo não retornou texto utilizável em 'output'.");
+  }
 
   console.log("CALLMODEL → OUTPUT TEXT:", outputText);
 
@@ -90,8 +92,12 @@ function extractOutputText(resp) {
 }
 
 async function safeText(r) {
-  try { return await r.text(); }
-  catch { return ""; }
+  try {
+    return await r.text();
+  } catch {
+    return "";
+  }
 }
 
 module.exports = { callModel };
+
