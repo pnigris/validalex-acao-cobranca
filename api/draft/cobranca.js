@@ -1,6 +1,6 @@
 /* api/draft/cobranca.js - versão revisada para alertas agrupados + CORS */
 
-const { requireAuth } = require("../shared/auth");
+//const { requireAuth } = require("../shared/auth");
 const { rateLimit } = require("../shared/rateLimit");
 const { ok, badRequest, unauthorized, tooManyRequests, serverError } = require("../shared/response");
 const { logInfo, logWarn, logError } = require("../shared/logger");
