@@ -1,4 +1,4 @@
-/* api/draft/cobranca.js - versão revisada para alertas agrupados + CORS */
+/* api/draft/cobranca.js - versão revisada para alertas agrupados */
 
 const { requireAuth } = require("../shared/auth");
 const { rateLimit } = require("../shared/rateLimit");
@@ -15,24 +15,6 @@ const { assembleHtml } = require("../../src/draft-cobranca/assemble");
 
 module.exports = async (req, res) => {
   const startedAt = Date.now();
-
-  // ----------------------------------------------------------------------
-  // 1. CONFIGURAÇÃO DE CORS (ADICIONADO)
-  // ----------------------------------------------------------------------
-  // Permite chamadas de qualquer origem (em prod, substitua '*' pelo domínio do Wix)
-  res.setHeader('Access-Control-Allow-Credentials', true);
-  res.setHeader('Access-Control-Allow-Origin', '*'); 
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization'
-  );
-
-  // Tratamento imediato para Preflight Request (OPTIONS)
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
 
   try {
     if (req.method !== "POST") {
@@ -222,3 +204,5 @@ function hashLite(s) {
   }
   return `h${(h >>> 0).toString(16)}`;
 }
+
+
