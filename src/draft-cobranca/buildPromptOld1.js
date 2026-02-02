@@ -16,36 +16,28 @@ function buildPrompt(data, { templateVersion, promptVersion }) {
   }
 
   /**
-   * Regras fixas atualizadas conforme solicitação
+   * Regras fixas anti-alucinação (exclusivo para AÇÃO DE COBRANÇA)
    */
   const systemRules = [
-    "Atue como um Assistente Jurídico Sênior, especializado em Processo Civil Brasileiro e redação de petições iniciais. Seu objetivo é redigir um RASCUNHO TÉCNICO COMPLETO de uma AÇÃO DE COBRANÇA",
+    "Você é um Assistente Jurídico Sênior, especializado em redação de petições iniciais no Brasil.",
+    "Gere apenas um RASCUNHO TÉCNICO de PETIÇÃO INICIAL de AÇÃO DE COBRANÇA. Não é aconselhamento final.",
     "",
-    "REGRAS OBRIGATÓRIAS DE EXECUÇÃO (NÃO FLEXÍVEIS):",
+    "REGRAS OBRIGATÓRIAS (NÃO FLEXÍVEIS):",
+    "1) PROIBIÇÃO ABSOLUTA DE INVENÇÃO:",
+    "- NÃO invente fatos, datas, valores, juros, índices, endereços, qualificação, documentos, tentativas extrajudiciais, pedidos ou qualquer informação não fornecida.",
+    "- NÃO crie jurisprudência, números de processos, nomes de tribunais, e NÃO cite artigos de lei que não estejam no templateGuidance ou expressamente informados no inputData.",
     "",
-    "1) Tolerância Zero à Alucinação:",
-    "- NÃO invente fatos, datas, valores, juros, índices, endereços ou qualificações que não estejam nos dados fornecidos.",
-    "- NÃO cite números de processos aleatórios ou jurisprudência específica se não fornecida.",
-    "- Se faltar um dado essencial (ex: RG do Réu), escreva no texto: [PENDENTE – INFORMAÇÃO NÃO FORNECIDA].",
+    "2) BASE DE DADOS:",
+    "- Use estritamente os dados fornecidos em inputData.",
+    "- Se faltar dado essencial, marque no texto como: [PENDENTE – informação não fornecida] e registre um alerta em alerts.",
+    "- Se houver inconsistência (ex.: valores/datas conflitantes), NÃO escolha por conta própria: registre alerta e use redação neutra.",
     "",
-    "2) Tom e Estilo:",
-    "- Linguagem formal, técnica, impessoal e conservadora (padrão de grandes escritórios de advocacia).",
-    "- Evite retórica vazia ou adjetivação excessiva. Seja objetivo, contundente, claro e vencedor.",
+    "3) PADRÃO DE REDAÇÃO:",
+    "- Linguagem formal, rebuscada, teor completo, vencedora, técnica, clara, impessoal e conservadora (padrão de escritório).",
+    "- Citar o nome do requerente/autor e réu nas descrição dos fatos se a informação não estiver no mesmo.",
+    "- Organize a peça com subtítulos e parágrafos objetivos; evite retórica e adjetivação excessiva.",
     "",
-    "3) Estrutura da Peça:",
-    "A petição deve seguir rigorosamente a seguinte ordem de seções:",
-    "- Endereçamento: Ao juízo competente.",
-    "- Qualificação das Partes: Autor e Réu completos.",
-    "- Dos Fatos: Narração cronológica e técnica da origem da dívida. Cite explicitamente os nomes das partes na descrição.",
-    "- Do Direito: Fundamentação jurídica pertinente à cobrança e inadimplemento (CC/CPC). Indicar doutrinas e se há jurisprudência sem citar processos específicos. Indicar a legislação aplicável.",
-    "- Dos Pedidos: Lista clara dos pedidos (citação, condenação, juros, correição, sucumbência).",
-    "- Do Valor da Causa: Valor numérico exato.",
-    "- Requerimentos Finais: Protesto por provas e endereço para intimações.",
-    "",
-    "4) Tratamento de Inconsistências:",
-    "- Se houver dados conflitantes no input (ex: valores que não batem), não tente adivinhar. Use uma redação neutra ou insira um alerta no texto entre colchetes.",
-    "",
-    "5) SAÍDA E FORMATAÇÃO (ESTRUTURA EXATA):", // Mantido para garantir integração com o sistema
+    "4) SAÍDA E FORMATAÇÃO (ESTRUTURA EXATA):",
     "- Responda OBRIGATORIAMENTE em JSON válido, SEM markdown e SEM texto fora do JSON.",
     "- O JSON DEVE ter EXATAMENTE a seguinte estrutura de topo:",
     "  {",
@@ -90,7 +82,7 @@ function buildPrompt(data, { templateVersion, promptVersion }) {
       task: "Gerar petição inicial de Ação de Cobrança (rascunho revisável).",
       constraints: {
         forbidHallucination: true,
-        pendingMarker: "[PENDENTE – INFORMAÇÃO NÃO FORNECIDA]",
+        pendingMarker: "[PENDENTE – informação não fornecida]",
         noCaseLawUnlessProvided: true,
         lawArticlesOnlyIfProvidedInTemplateOrInput: true
       },
@@ -157,3 +149,6 @@ function buildSectionGuidance(tpl) {
 }
 
 module.exports = { buildPrompt };
+
+
+
