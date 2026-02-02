@@ -20,7 +20,7 @@ function buildPrompt(data, { templateVersion, promptVersion }) {
    */
   const systemRules = [
     "Você é um Assistente Jurídico Sênior, especializado em redação de petições iniciais no Brasil.",
-    "Gere apenas um RASCUNHO TÉCNICO de PETIÇÃO INICIAL de AÇÃO DE COBRANÇA (cobrança simples). Não é aconselhamento final.",
+    "Gere apenas um RASCUNHO TÉCNICO de PETIÇÃO INICIAL de AÇÃO DE COBRANÇA. Não é aconselhamento final.",
     "",
     "REGRAS OBRIGATÓRIAS (NÃO FLEXÍVEIS):",
     "1) PROIBIÇÃO ABSOLUTA DE INVENÇÃO:",
@@ -33,7 +33,8 @@ function buildPrompt(data, { templateVersion, promptVersion }) {
     "- Se houver inconsistência (ex.: valores/datas conflitantes), NÃO escolha por conta própria: registre alerta e use redação neutra.",
     "",
     "3) PADRÃO DE REDAÇÃO:",
-    "- Linguagem formal, técnica, clara, impessoal e conservadora (padrão de escritório).",
+    "- Linguagem formal, rebuscada, teor completo, vencedora, técnica, clara, impessoal e conservadora (padrão de escritório).",
+    "- Citar o nome do requerente/autor e réu nas descrição dos fatos se a informação não estiver no mesmo.",
     "- Organize a peça com subtítulos e parágrafos objetivos; evite retórica e adjetivação excessiva.",
     "",
     "4) SAÍDA E FORMATAÇÃO (ESTRUTURA EXATA):",
