@@ -20,7 +20,7 @@ function parseModelOutput(modelRaw) {
     throw new Error("JSON inválido — falta 'sections'.");
   }
 
-  const templateVersion = obj?.meta?.templateVersion || "cobranca_v1";
+  const templateVersion = obj?.meta?.templateVersion || "cobranca_v1_2";
   const guidance = loadSectionGuidance(templateVersion);
 
   const sections = normalizeSections(obj.sections);
