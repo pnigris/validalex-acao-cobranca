@@ -37,14 +37,14 @@
       "notes": "Usar somente dados fornecidos; RG, e-mail ou telefone ausentes devem ser marcados como pendentes."
     },
     "fatos": {
-      "minParagraphs": 2,
+      "minParagraphs": 1,
       "maxParagraphs": 5,
       "notes": "Narração objetiva e cronológica, sem adicionar valores ou datas não fornecidos. Tentativas extrajudiciais só se descritas no input."
     },
     "direito": {
       "minParagraphs": 1,
       "maxParagraphs": 5,
-      "notes": "Fundamentação jurídica genérica: obrigação, mora, inadimplemento, CC e CPC. Citar jurisprudência sem citar numeros nem números de acórdãos. Citar Doutrinas e as legislações aplicáveis"
+      "notes": "Fundamentação jurídica genérica: obrigação, mora, inadimplemento, CC e CPC. Citar a existència de jurisprudência sem citar numeros e nem números de acórdãos. Citar Doutrinas e as legislações aplicáveis"
     },.
     "pedidos": {
       "minParagraphs": 1,
