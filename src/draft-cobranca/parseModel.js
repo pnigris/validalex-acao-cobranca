@@ -1,10 +1,10 @@
-/* src/draft-cobranca/parseModel.js */
+/* src/draft-cobranca/parseModel.js — versão reescrita */
 
 const fs = require("fs");
 const path = require("path");
 
 function parseModelOutput(modelRaw) {
-  const text = (modelRaw && modelRaw.text) ? String(modelRaw.text).trim() : "";
+  const text = modelRaw?.text ? String(modelRaw.text).trim() : "";
   if (!text) throw new Error("Modelo retornou resposta vazia.");
 
   let obj;
@@ -16,106 +16,117 @@ function parseModelOutput(modelRaw) {
     obj = JSON.parse(extracted);
   }
 
-  if (!obj.sections || typeof obj.sections !== "object") {
-    throw new Error("JSON do modelo inválido: faltou 'sections'.");
+  if (!obj.sections) {
+    throw new Error("JSON inválido — falta 'sections'.");
   }
 
-  const guidance = loadSectionGuidance();
+  const templateVersion = obj?.meta?.templateVersion || "cobranca_v1";
+  const guidance = loadSectionGuidance(templateVersion);
 
-  const sections = {
-    enderecamento: safeStr(obj.sections.enderecamento),
-    qualificacao: safeStr(obj.sections.qualificacao),
-    fatos: safeStr(obj.sections.fatos),
-    direito: safeStr(obj.sections.direito),
-    pedidos: safeStr(obj.sections.pedidos),
-    valor_causa: safeStr(obj.sections.valor_causa),
-    requerimentos_finais: safeStr(obj.sections.requerimentos_finais)
-  };
-
+  const sections = normalizeSections(obj.sections);
+  const emptySectionAlerts = alertOnEmptySections(sections);
   const paragraphAlerts = validateParagraphLimits(sections, guidance);
 
-  const modelAlerts = Array.isArray(obj.alerts) ? obj.alerts.map(normAlert) : [];
+  const modelAlerts = (Array.isArray(obj.alerts) ? obj.alerts.map(normAlert) : []);
 
-  const alerts = [...modelAlerts, ...paragraphAlerts];
-
-  const meta = obj.meta && typeof obj.meta === "object" ? obj.meta : {};
-
-  return { sections, alerts, meta };
+  return {
+    sections,
+    alerts: [...modelAlerts, ...paragraphAlerts, ...emptySectionAlerts],
+    meta: obj.meta || {}
+  };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Helpers                                                                     */
-/* -------------------------------------------------------------------------- */
+/* Helpers */
 
-function loadSectionGuidance() {
-  const tplPath = path.join(process.cwd(), "templates", "cobranca_v1.json");
+function loadSectionGuidance(tplVersion) {
+  const tplPath = path.join(process.cwd(), "templates", `${tplVersion}.json`);
   try {
     const raw = fs.readFileSync(tplPath, "utf8");
-    const tpl = JSON.parse(raw);
-    return tpl.sectionGuidance || {};
+    return JSON.parse(raw).sectionGuidance || {};
   } catch {
     return {};
   }
 }
 
+function normalizeSections(src) {
+  return {
+    enderecamento: safe(src.enderecamento),
+    qualificacao: safe(src.qualificacao),
+    fatos: safe(src.fatos),
+    direito: safe(src.direito),
+    pedidos: safe(src.pedidos),
+    valor_causa: safe(src.valor_causa),
+    requerimentos_finais: safe(src.requerimentos_finais)
+  };
+}
+
+function safe(v) {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+function alertOnEmptySections(sections) {
+  const alerts = [];
+  for (const [key, value] of Object.entries(sections)) {
+    if (!value || value.length === 0) {
+      alerts.push({
+        level: "warn",
+        code: "EMPTY_SECTION",
+        message: `A seção '${key}' está vazia ou não foi gerada pelo modelo.`
+      });
+    }
+  }
+  return alerts;
+}
+
 function validateParagraphLimits(sections, guidance) {
   const alerts = [];
-
   for (const [key, text] of Object.entries(sections)) {
     const cfg = guidance[key];
     if (!cfg) continue;
 
-    const paragraphs = splitParagraphs(text);
-    const count = paragraphs.length;
+    const parts = splitParagraphs(text);
+    const count = parts.length;
 
-    if (typeof cfg.minParagraphs === "number" && count < cfg.minParagraphs) {
+    if (cfg.minParagraphs && count < cfg.minParagraphs) {
       alerts.push({
         level: "warn",
         code: "PARAGRAPH_TOO_SHORT",
-        message: `A seção '${key}' possui apenas ${count} parágrafo(s), abaixo do mínimo (${cfg.minParagraphs}).`
+        message: `A seção '${key}' possui apenas ${count} parágrafos (mínimo: ${cfg.minParagraphs}).`
       });
     }
 
-    if (typeof cfg.maxParagraphs === "number" && count > cfg.maxParagraphs) {
+    if (cfg.maxParagraphs && count > cfg.maxParagraphs) {
       alerts.push({
         level: "warn",
         code: "PARAGRAPH_TOO_LONG",
-        message: `A seção '${key}' possui ${count} parágrafos, acima do máximo (${cfg.maxParagraphs}).`
+        message: `A seção '${key}' possui ${count} parágrafos (máximo: ${cfg.maxParagraphs}).`
       });
     }
   }
-
   return alerts;
 }
 
 function splitParagraphs(text) {
-  const t = String(text || "").trim();
-  if (!t) return [];
-  return t
+  return String(text || "")
+    .trim()
     .split(/\n{2,}/g)
-    .map(p => p.trim())
+    .map((p) => p.trim())
     .filter(Boolean);
 }
 
 function normAlert(a) {
-  const level = (a && a.level) ? String(a.level).toLowerCase() : "info";
+  const level = (a?.level || "info").toLowerCase();
   return {
     level: ["info", "warn", "error"].includes(level) ? level : "info",
-    code: a && a.code ? String(a.code) : "MODEL_ALERT",
-    message: a && a.message ? String(a.message) : "Atenção: alerta do modelo."
+    code: a?.code || "MODEL_ALERT",
+    message: a?.message || "Alerta retornado pelo modelo."
   };
-}
-
-function safeStr(v) {
-  return (typeof v === "string") ? v.trim() : "";
 }
 
 function extractFirstJson(text) {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
-  if (start >= 0 && end > start) return text.slice(start, end + 1);
-  return "";
+  return start >= 0 && end > start ? text.slice(start, end + 1) : "";
 }
 
 module.exports = { parseModelOutput };
-
