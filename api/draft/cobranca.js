@@ -68,8 +68,8 @@ module.exports = async (req, res) => {
         ],
         meta: {
           jobId,
-          promptVersion: "cobranca-1.0.0",
-          templateVersion: "cobranca_v1",
+          promptVersion: "cobranca-1.2.0",
+          templateVersion: "cobranca_v1_2",
           schemaVersion: schema.version
         }
       });
@@ -88,16 +88,16 @@ module.exports = async (req, res) => {
         missing: v.missingCritical,
         meta: {
           jobId,
-          promptVersion: "cobranca-1.0.0",
-          templateVersion: "cobranca_v1",
+          promptVersion: "cobranca-1.2.0",
+          templateVersion: "cobranca_v1_2",
           schemaVersion: schema.version
         }
       });
     }
 
     const prompt = buildPrompt(data, {
-      templateVersion: "cobranca_v1",
-      promptVersion: "cobranca-1.0.0"
+      templateVersion: "cobranca_v1_2",
+      promptVersion: "cobranca-1.2.0"
     });
 
     const modelRaw = await callModel({ prompt });
@@ -177,7 +177,7 @@ async function readJson(req) {
   const raw = Buffer.concat(chunks).toString("utf8") || "{}";
   try {
     return JSON.parse(raw);
-  } catch {
+  } catch {S
     throw new Error("JSON inválido no body.");
   }
 }
