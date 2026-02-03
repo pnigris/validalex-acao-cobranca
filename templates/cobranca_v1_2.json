@@ -41,11 +41,23 @@
       "maxParagraphs": 5,
       "notes": "Narração objetiva e cronológica, sem adicionar valores ou datas não fornecidos. Tentativas extrajudiciais só se descritas no input."
     },
-    "direito": {
-      "minParagraphs": 1,
-      "maxParagraphs": 5,
-      "notes": "Fundamentação jurídica genérica: obrigação, mora, inadimplemento, CC e CPC. Citar a existència de jurisprudência sem citar numeros e nem números de acórdãos. Citar Doutrinas e as legislações aplicáveis"
-    },
+"direito": {
+  "minParagraphs": 5,
+  "structure": [
+    "Natureza da obrigação assumida e sua exigibilidade",
+    "Configuração da mora e do inadimplemento",
+    "Efeitos jurídicos do inadimplemento da obrigação",
+    "Fundamentação legal no Código Civil e no CPC",
+    "Adequação da via eleita e do pedido formulado"
+  ],
+  "rules": [
+    "Cada parágrafo deve tratar exclusivamente de um item da estrutura",
+    "É vedada repetição de ideias entre parágrafos",
+    "Não citar números de processos ou acórdãos",
+    "Pode citar artigos de lei de forma genérica (ex: Código Civil, CPC)"
+  ]
+}
+
     "pedidos": {
       "minParagraphs": 1,
       "maxParagraphs": 3,
