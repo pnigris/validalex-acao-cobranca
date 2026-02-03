@@ -4,7 +4,7 @@ const fs = require("fs");
 const path = require("path");
 
 function buildPrompt(data, { templateVersion, promptVersion }) {
-  const tplPath = path.join(process.cwd(), "templates", "cobranca_v1.json");
+  const tplPath = path.join(process.cwd(), "templates", "cobranca_v1_2.json");
 
   // Carrega template JSON com proteção contra erros
   let tpl = {};
