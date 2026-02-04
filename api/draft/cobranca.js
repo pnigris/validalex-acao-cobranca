@@ -1,4 +1,8 @@
+/* ************************************************************************* */
 /* api/draft/cobranca.js - versão corrigida para incluir sections na resposta */
+/* Data: 04/02/2026                                                           */
+/* Correção crítica: sections agora incluído na resposta final                */
+/* ************************************************************************* */
 
 const { requireAuth } = require("../shared/auth");
 const { rateLimit } = require("../shared/rateLimit");
@@ -46,6 +50,9 @@ module.exports = async (req, res) => {
 
     const v = validateDraftCobranca(data, { schema });
 
+    /* ----------------------------------------------------------------------
+       CASO 1: Dados críticos faltantes
+    ---------------------------------------------------------------------- */
     if (v.missingCritical.length > 0) {
       const html = renderHtmlRelatorio({
         title: "Rascunho NÃO gerado – faltam dados críticos",
@@ -81,11 +88,11 @@ module.exports = async (req, res) => {
         ms: Date.now() - startedAt
       });
 
+      // 🔥 CORREÇÃO: sections vazio quando faltam dados críticos
       return ok(res, {
         ok: true,
         html,
-        // ✅ CORREÇÃO: sections vazio quando dados críticos faltam
-        sections: {},
+        sections: {},  // Vazio: não há conteúdo gerado
         alerts: v.alerts,
         missing: v.missingCritical,
         meta: {
@@ -97,6 +104,9 @@ module.exports = async (req, res) => {
       });
     }
 
+    /* ----------------------------------------------------------------------
+       CASO 2: Geração bem-sucedida
+    ---------------------------------------------------------------------- */
     const prompt = buildPrompt(data, {
       templateVersion: "cobranca_v1_2",
       promptVersion: "cobranca-1.2.0"
@@ -129,11 +139,12 @@ module.exports = async (req, res) => {
       model: assembled.meta.model
     });
 
-    // ✅ CORREÇÃO: incluir sections na resposta final
+    // 🔥 CORREÇÃO CRÍTICA: incluir sections na resposta final
+    // sections vem de parsed.sections (parseModel), NÃO de assembled
     return ok(res, {
       ok: true,
       html,
-      sections: assembled.sections,
+      sections: parsed.sections,  // ✅ CORRETO: objeto com 7 seções plain
       alerts: [...v.alerts, ...parsed.alerts],
       missing: [],
       meta: assembled.meta
