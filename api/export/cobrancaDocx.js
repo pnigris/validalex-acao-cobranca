@@ -158,7 +158,7 @@ module.exports = async (req, res) => {
             spacing: { after: 400 }
           }),
 
-/*          // ASSINATURA
+         // ASSINATURA
           new Paragraph({
             text: s(body?.doc?.signature?.nome),
             alignment: AlignmentType.RIGHT,
