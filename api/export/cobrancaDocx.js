@@ -1,12 +1,9 @@
 /* ************************************************************************* */
-/* Nome do codigo: api/export/cobrancaDocx.js                                */
-/* Objetivo: gerar DOCX a partir das sections já validadas (SEM BLOB)        */
+/* Nome do codigo: api/export/cobrancaDocx.js                                 */
+/* Objetivo: gerar DOCX PROGRAMATICAMENTE (sem template quebrado)            */
 /* ************************************************************************* */
 
-const fs = require("fs");
-const path = require("path");
-const PizZip = require("pizzip");
-const Docxtemplater = require("docxtemplater");
+const { Document, Packer, Paragraph, TextRun, AlignmentType, HeadingLevel } = require("docx");
 
 function setCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -16,7 +13,31 @@ function setCors(res) {
 }
 
 function s(v) { 
-  return typeof v === "string" ? v : ""; 
+  return typeof v === "string" ? v : "[PENDENTE – INFORMAÇÃO NÃO FORNECIDA]"; 
+}
+
+// Converte texto com quebras de linha em array de parágrafos
+function textToParagraphs(text, options = {}) {
+  const lines = String(text || "").split("\n").filter(line => line.trim());
+  return lines.map(line => new Paragraph({
+    text: line.trim(),
+    spacing: { after: 200 }, // espaço após parágrafo
+    alignment: options.alignment || AlignmentType.JUSTIFIED,
+    ...options
+  }));
+}
+
+// Cria seção com título
+function createSection(title, content) {
+  return [
+    new Paragraph({
+      text: title,
+      heading: HeadingLevel.HEADING_2,
+      spacing: { before: 400, after: 200 },
+      bold: true
+    }),
+    ...textToParagraphs(content)
+  ];
 }
 
 module.exports = async (req, res) => {
@@ -29,9 +50,8 @@ module.exports = async (req, res) => {
 
   try {
     const body = req.body || {};
-    const templateVersion = String(body.templateVersion || "cobranca_v1_2").trim();
-
     const sections = body?.doc?.sections;
+
     if (!sections || typeof sections !== "object") {
       return res.status(400).json({ 
         ok: false, 
@@ -39,49 +59,79 @@ module.exports = async (req, res) => {
       });
     }
 
-    const templatePath = path.join(process.cwd(), "templates", `${templateVersion}.docx`);
-    if (!fs.existsSync(templatePath)) {
-      return res.status(404).json({ 
-        ok: false, 
-        error: `Template DOCX não encontrado: ${templateVersion}.docx` 
-      });
-    }
+    // 🔥 GERAÇÃO PROGRAMÁTICA (sem template físico)
+    const doc = new Document({
+      sections: [{
+        properties: {},
+        children: [
+          // CABEÇALHO
+          new Paragraph({
+            text: "PETIÇÃO INICIAL – AÇÃO DE COBRANÇA",
+            heading: HeadingLevel.TITLE,
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 400 }
+          }),
 
-    // 1) Render DOCX
-    const buf = fs.readFileSync(templatePath);
-    const zip = new PizZip(buf);
+          // ENDEREÇAMENTO
+          ...createSection("", s(sections.enderecamento)),
 
-    const doc = new Docxtemplater(zip, { 
-      paragraphLoop: true, 
-      linebreaks: true 
+          // QUALIFICAÇÃO DAS PARTES
+          ...createSection("I – QUALIFICAÇÃO DAS PARTES", s(sections.qualificacao)),
+
+          // DOS FATOS
+          ...createSection("II – DOS FATOS", s(sections.fatos)),
+
+          // DO DIREITO
+          ...createSection("III – DO DIREITO", s(sections.direito)),
+
+          // DOS PEDIDOS
+          ...createSection("IV – DOS PEDIDOS", s(sections.pedidos)),
+
+          // DO VALOR DA CAUSA
+          ...createSection("V – DO VALOR DA CAUSA", s(sections.valor_causa)),
+
+          // REQUERIMENTOS FINAIS
+          ...createSection("VI – REQUERIMENTOS FINAIS", s(sections.requerimentos_finais)),
+
+          // ESPAÇO
+          new Paragraph({ text: "", spacing: { after: 400 } }),
+
+          // LOCAL E DATA
+          new Paragraph({
+            text: s(body?.doc?.localData),
+            alignment: AlignmentType.RIGHT,
+            spacing: { after: 400 }
+          }),
+
+          // ASSINATURA
+          new Paragraph({
+            text: s(body?.doc?.signature?.nome),
+            alignment: AlignmentType.RIGHT,
+            bold: true
+          }),
+          new Paragraph({
+            text: s(body?.doc?.signature?.oab),
+            alignment: AlignmentType.RIGHT,
+            spacing: { after: 200 }
+          })
+        ]
+      }]
     });
 
-    doc.render({
-      ENDERECAMENTO: s(sections.enderecamento),
-      QUALIFICACAO: s(sections.qualificacao),
-      FATOS: s(sections.fatos),
-      DIREITO: s(sections.direito),
-      PEDIDOS: s(sections.pedidos),
-      VALOR_CAUSA: s(sections.valor_causa),
-      REQUERIMENTOS_FINAIS: s(sections.requerimentos_finais),
-      LOCAL_DATA: s(body?.doc?.localData),
-      ASSINATURA_NOME: s(body?.doc?.signature?.nome),
-      ASSINATURA_OAB: s(body?.doc?.signature?.oab),
-    });
+    // Gera buffer do DOCX
+    const buffer = await Packer.toBuffer(doc);
 
-    const out = doc.getZip().generate({ 
-      type: "nodebuffer", 
-      compression: "DEFLATE" 
-    });
-
-    // 🔥 SOLUÇÃO: Retornar como Data URL (base64) — SEM UPLOAD
-    const base64 = out.toString("base64");
+    // 🔥 Retorna como base64 data URL (sem upload para Blob)
+    const base64 = buffer.toString("base64");
     const dataUrl = `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${base64}`;
+
+    console.log(`[EXPORT_DOCX_OK] Gerado com sucesso. Tamanho: ${buffer.length} bytes`);
 
     return res.status(200).json({
       ok: true,
-      url: dataUrl, // ✅ URL que o Wix pode abrir diretamente
-      filename: `acao_cobranca_${Date.now()}.docx`
+      url: dataUrl,
+      filename: `acao_cobranca_${Date.now()}.docx`,
+      size: buffer.length
     });
 
   } catch (err) {

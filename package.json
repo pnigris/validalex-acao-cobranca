@@ -11,7 +11,6 @@
     "start": "node -e \"console.log('serverless via Vercel')\""
   },
   "dependencies": {
-    "docxtemplater": "^3.54.0",
-    "pizzip": "^3.1.7"
+    "docx": "^9.5.1"
   }
 }
