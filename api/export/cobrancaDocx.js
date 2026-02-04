@@ -1,16 +1,15 @@
 /* ************************************************************************* */
 /* Nome do codigo: api/export/cobrancaDocx.js                                 */
-/* Objetivo: gerar DOCX programaticamente + upload otimizado para Blob       */
-/* Regras: Authorization Bearer obrigatório + retorno JSON com {ok,url}       */
+/* Objetivo: gerar DOCX + upload para Vercel Blob e retornar {ok,url}         */
 /* ************************************************************************* */
 
 const { Document, Packer, Paragraph, AlignmentType, HeadingLevel } = require("docx");
 const { put } = require("@vercel/blob");
 
-// Mesma arquitetura do draft: shared/*
 const { authGuard } = require("../shared/auth.js");
 const { rateLimit } = require("../shared/rateLimit.js");
 const { logger } = require("../shared/logger.js");
+const { sendJson } = require("../shared/response.js");
 
 function setCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -20,47 +19,21 @@ function setCors(res) {
 }
 
 function s(v) {
-  return typeof v === "string" ? v : "[PENDENTE – INFORMAÇÃO NÃO FORNECIDA]";
-}
-
-// Converte texto com quebras de linha em array de parágrafos
-function textToParagraphs(text, options = {}) {
-  const lines = String(text || "").split("\n").filter(line => line.trim());
-  return lines.map(line => new Paragraph({
-    text: line.trim(),
-    spacing: { after: 200 },
-    alignment: options.alignment || AlignmentType.JUSTIFIED,
-    ...options
-  }));
-}
-
-// Cria seção com título
-function createSection(title, content) {
-  const paragraphs = [];
-
-  if (title) {
-    paragraphs.push(new Paragraph({
-      text: title,
-      heading: HeadingLevel.HEADING_2,
-      spacing: { before: 400, after: 200 },
-      bold: true
-    }));
-  }
-
-  paragraphs.push(...textToParagraphs(content));
-  return paragraphs;
+  return (typeof v === "string" && v.trim())
+    ? v
+    : "[PENDENTE – INFORMAÇÃO NÃO FORNECIDA]";
 }
 
 function isObject(v) {
   return !!v && typeof v === "object" && !Array.isArray(v);
 }
 
-function validateSectionsObject(sections) {
+function validateSections(sections) {
   if (!isObject(sections)) {
     return { ok: false, error: "doc.sections ausente ou inválido (esperado OBJETO)" };
   }
 
-  const requiredKeys = [
+  const required = [
     "enderecamento",
     "qualificacao",
     "fatos",
@@ -70,7 +43,7 @@ function validateSectionsObject(sections) {
     "requerimentos_finais"
   ];
 
-  for (const k of requiredKeys) {
+  for (const k of required) {
     if (!(k in sections)) return { ok: false, error: `doc.sections inválido: chave ausente '${k}'` };
     if (typeof sections[k] !== "string") return { ok: false, error: `doc.sections inválido: '${k}' deve ser string` };
   }
@@ -81,32 +54,63 @@ function validateSectionsObject(sections) {
   return { ok: true };
 }
 
+function textToParagraphs(text) {
+  const lines = String(text || "")
+    .split("\n")
+    .map(l => l.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) return [new Paragraph({ text: "" })];
+
+  return lines.map(line => new Paragraph({
+    text: line,
+    spacing: { after: 200 },
+    alignment: AlignmentType.JUSTIFIED
+  }));
+}
+
+function section(title, content) {
+  return [
+    new Paragraph({
+      text: title,
+      heading: HeadingLevel.HEADING_2,
+      spacing: { before: 400, after: 200 }
+    }),
+    ...textToParagraphs(content)
+  ];
+}
+
 function looksLikeTimeout(err) {
   const msg = String(err?.message || err || "");
   return /\b504\b/.test(msg) || /gateway timeout/i.test(msg) || /timeout/i.test(msg) || /Tempo limite/i.test(msg);
 }
 
-module.exports = async (req, res) => {
+module.exports = async function handler(req, res) {
   setCors(res);
 
-  if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST") {
-    return res.status(405).json({ ok: false, error: "Method not allowed" });
+  // ✅ OPTIONS com Node puro (sem res.status)
+  if (req.method === "OPTIONS") {
+    res.statusCode = 200;
+    return res.end();
   }
 
-  const startTime = Date.now();
+  if (req.method !== "POST") {
+    return sendJson(res, 405, { ok: false, status: 405, error: "Method not allowed" });
+  }
+
+  const start = Date.now();
 
   try {
-    // ✅ Segurança e proteção (mesmo padrão do draft)
-    rateLimit(req, res);
+    // ✅ barata primeiro
+    rateLimit(req, res, { limit: 20, windowMs: 60_000 });
     authGuard(req);
 
     const body = req.body || {};
     const sections = body?.doc?.sections;
 
-    const v = validateSectionsObject(sections);
+    const v = validateSections(sections);
     if (!v.ok) {
-      return res.status(400).json({ ok: false, error: v.error });
+      return sendJson(res, 400, { ok: false, status: 400, error: v.error });
     }
 
     logger.info("EXPORT_DOCX_START", {
@@ -114,12 +118,11 @@ module.exports = async (req, res) => {
       templateVersion: body?.templateVersion || "cobranca_v1_2"
     });
 
-    // 🔥 GERAÇÃO PROGRAMÁTICA
+    // ✅ Geração DOCX
     const doc = new Document({
       sections: [{
         properties: {},
         children: [
-          // CABEÇALHO
           new Paragraph({
             text: "PETIÇÃO INICIAL – AÇÃO DE COBRANÇA",
             heading: HeadingLevel.TITLE,
@@ -127,38 +130,22 @@ module.exports = async (req, res) => {
             spacing: { after: 400 }
           }),
 
-          // ENDEREÇAMENTO
-          ...createSection("", s(sections.enderecamento)),
+          ...textToParagraphs(s(sections.enderecamento)),
+          ...section("I – QUALIFICAÇÃO DAS PARTES", s(sections.qualificacao)),
+          ...section("II – DOS FATOS", s(sections.fatos)),
+          ...section("III – DO DIREITO", s(sections.direito)),
+          ...section("IV – DOS PEDIDOS", s(sections.pedidos)),
+          ...section("V – DO VALOR DA CAUSA", s(sections.valor_causa)),
+          ...section("VI – REQUERIMENTOS FINAIS", s(sections.requerimentos_finais)),
 
-          // QUALIFICAÇÃO DAS PARTES
-          ...createSection("I – QUALIFICAÇÃO DAS PARTES", s(sections.qualificacao)),
-
-          // DOS FATOS
-          ...createSection("II – DOS FATOS", s(sections.fatos)),
-
-          // DO DIREITO
-          ...createSection("III – DO DIREITO", s(sections.direito)),
-
-          // DOS PEDIDOS
-          ...createSection("IV – DOS PEDIDOS", s(sections.pedidos)),
-
-          // DO VALOR DA CAUSA
-          ...createSection("V – DO VALOR DA CAUSA", s(sections.valor_causa)),
-
-          // REQUERIMENTOS FINAIS
-          ...createSection("VI – REQUERIMENTOS FINAIS", s(sections.requerimentos_finais)),
-
-          // ESPAÇO
           new Paragraph({ text: "", spacing: { after: 400 } }),
 
-          // LOCAL E DATA
           new Paragraph({
             text: s(body?.doc?.localData),
             alignment: AlignmentType.RIGHT,
-            spacing: { after: 400 }
+            spacing: { after: 300 }
           }),
 
-         // ASSINATURA
           new Paragraph({
             text: s(body?.doc?.signature?.nome),
             alignment: AlignmentType.RIGHT,
@@ -166,18 +153,15 @@ module.exports = async (req, res) => {
           }),
           new Paragraph({
             text: s(body?.doc?.signature?.oab),
-            alignment: AlignmentType.RIGHT,
-            spacing: { after: 200 }
+            alignment: AlignmentType.RIGHT
           })
         ]
       }]
     });
 
     const buffer = await Packer.toBuffer(doc);
-    const genTime = Date.now() - startTime;
 
-    // 🔥 UPLOAD para Vercel Blob
-    const uploadStart = Date.now();
+    // ✅ Upload Blob
     const now = Date.now();
     const filename = `cobranca/acao_cobranca_${now}.docx`;
 
@@ -188,48 +172,39 @@ module.exports = async (req, res) => {
       cacheControlMaxAge: 3600
     });
 
-    const uploadTime = Date.now() - uploadStart;
-    const totalTime = Date.now() - startTime;
+    const ms = Date.now() - start;
+    logger.info("EXPORT_DOCX_OK", { ms, size: buffer.length });
 
-    logger.info("EXPORT_DOCX_OK", {
-      url: blob.url,
-      size: buffer.length,
-      timing: { generation: genTime, upload: uploadTime, total: totalTime }
-    });
-
-    return res.status(200).json({
+    return sendJson(res, 200, {
       ok: true,
       url: blob.url,
       filename: `acao_cobranca_${now}.docx`,
       size: buffer.length,
-      timing: {
-        generation: genTime,
-        upload: uploadTime,
-        total: totalTime
-      }
+      meta: { ms }
     });
 
   } catch (err) {
-    const totalTime = Date.now() - startTime;
+    const ms = Date.now() - start;
+    const msg = String(err?.message || err || "Erro inesperado");
 
-    // Se for timeout, devolve 504 (ajuda seu Wix a mostrar mensagem amigável)
     if (looksLikeTimeout(err)) {
-      logger.error("EXPORT_DOCX_504", { ms: totalTime, error: String(err?.message || err) });
-      return res.status(504).json({
+      logger.error("EXPORT_DOCX_504", { ms, error: msg });
+      return sendJson(res, 504, {
         ok: false,
         status: 504,
         error: "Tempo limite excedido (504). Tente novamente. Se persistir, reduza o texto de 'Fatos'.",
-        details: String(err?.message || err)
+        details: msg
       });
     }
 
-    logger.error("EXPORT_DOCX_ERR", { ms: totalTime, error: String(err?.message || err) });
+    const status = Number(err?.statusCode || 500);
+    logger.error("EXPORT_DOCX_ERR", { ms, status, error: msg });
 
-    return res.status(500).json({
+    return sendJson(res, status, {
       ok: false,
-      status: 500,
-      error: "Erro ao gerar DOCX",
-      details: err?.message || String(err)
+      status,
+      error: status === 429 ? "Muitas requisições. Tente novamente em alguns instantes." : "Erro ao gerar DOCX",
+      details: msg
     });
   }
 };
