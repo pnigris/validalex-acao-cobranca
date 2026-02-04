@@ -1,10 +1,16 @@
 /* ************************************************************************* */
 /* Nome do codigo: api/export/cobrancaDocx.js                                 */
 /* Objetivo: gerar DOCX programaticamente + upload otimizado para Blob       */
+/* Regras: Authorization Bearer obrigatório + retorno JSON com {ok,url}       */
 /* ************************************************************************* */
 
-const { Document, Packer, Paragraph, TextRun, AlignmentType, HeadingLevel } = require("docx");
+const { Document, Packer, Paragraph, AlignmentType, HeadingLevel } = require("docx");
 const { put } = require("@vercel/blob");
+
+// Mesma arquitetura do draft: shared/*
+const { authGuard } = require("../shared/auth.js");
+const { rateLimit } = require("../shared/rateLimit.js");
+const { logger } = require("../shared/logger.js");
 
 function setCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -13,8 +19,8 @@ function setCors(res) {
   res.setHeader("Access-Control-Max-Age", "86400");
 }
 
-function s(v) { 
-  return typeof v === "string" ? v : "[PENDENTE – INFORMAÇÃO NÃO FORNECIDA]"; 
+function s(v) {
+  return typeof v === "string" ? v : "[PENDENTE – INFORMAÇÃO NÃO FORNECIDA]";
 }
 
 // Converte texto com quebras de linha em array de parágrafos
@@ -31,7 +37,7 @@ function textToParagraphs(text, options = {}) {
 // Cria seção com título
 function createSection(title, content) {
   const paragraphs = [];
-  
+
   if (title) {
     paragraphs.push(new Paragraph({
       text: title,
@@ -40,14 +46,49 @@ function createSection(title, content) {
       bold: true
     }));
   }
-  
+
   paragraphs.push(...textToParagraphs(content));
   return paragraphs;
 }
 
+function isObject(v) {
+  return !!v && typeof v === "object" && !Array.isArray(v);
+}
+
+function validateSectionsObject(sections) {
+  if (!isObject(sections)) {
+    return { ok: false, error: "doc.sections ausente ou inválido (esperado OBJETO)" };
+  }
+
+  const requiredKeys = [
+    "enderecamento",
+    "qualificacao",
+    "fatos",
+    "direito",
+    "pedidos",
+    "valor_causa",
+    "requerimentos_finais"
+  ];
+
+  for (const k of requiredKeys) {
+    if (!(k in sections)) return { ok: false, error: `doc.sections inválido: chave ausente '${k}'` };
+    if (typeof sections[k] !== "string") return { ok: false, error: `doc.sections inválido: '${k}' deve ser string` };
+  }
+
+  const hasAny = Object.values(sections).some(t => String(t || "").trim().length > 0);
+  if (!hasAny) return { ok: false, error: "doc.sections está vazio — gere o rascunho novamente antes de exportar" };
+
+  return { ok: true };
+}
+
+function looksLikeTimeout(err) {
+  const msg = String(err?.message || err || "");
+  return /\b504\b/.test(msg) || /gateway timeout/i.test(msg) || /timeout/i.test(msg) || /Tempo limite/i.test(msg);
+}
+
 module.exports = async (req, res) => {
   setCors(res);
-  
+
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
@@ -56,19 +97,24 @@ module.exports = async (req, res) => {
   const startTime = Date.now();
 
   try {
+    // ✅ Segurança e proteção (mesmo padrão do draft)
+    rateLimit(req, res);
+    authGuard(req);
+
     const body = req.body || {};
     const sections = body?.doc?.sections;
 
-    if (!sections || typeof sections !== "object") {
-      return res.status(400).json({ 
-        ok: false, 
-        error: "doc.sections ausente ou inválido" 
-      });
+    const v = validateSectionsObject(sections);
+    if (!v.ok) {
+      return res.status(400).json({ ok: false, error: v.error });
     }
 
-    console.log("[EXPORT_DOCX] Iniciando geração do documento...");
+    logger.info("EXPORT_DOCX_START", {
+      hasSections: true,
+      templateVersion: body?.templateVersion || "cobranca_v1_2"
+    });
 
-    // 🔥 GERAÇÃO PROGRAMÁTICA (resolve problema de tags quebradas)
+    // 🔥 GERAÇÃO PROGRAMÁTICA
     const doc = new Document({
       sections: [{
         properties: {},
@@ -112,7 +158,7 @@ module.exports = async (req, res) => {
             spacing: { after: 400 }
           }),
 
-          // ASSINATURA
+/*          // ASSINATURA
           new Paragraph({
             text: s(body?.doc?.signature?.nome),
             alignment: AlignmentType.RIGHT,
@@ -127,34 +173,34 @@ module.exports = async (req, res) => {
       }]
     });
 
-    console.log("[EXPORT_DOCX] Gerando buffer...");
     const buffer = await Packer.toBuffer(doc);
     const genTime = Date.now() - startTime;
-    console.log(`[EXPORT_DOCX] Buffer gerado em ${genTime}ms. Tamanho: ${buffer.length} bytes`);
 
-    // 🔥 UPLOAD OTIMIZADO para Vercel Blob
-    console.log("[EXPORT_DOCX] Fazendo upload para Vercel Blob...");
+    // 🔥 UPLOAD para Vercel Blob
     const uploadStart = Date.now();
-    
-    const filename = `cobranca/acao_cobranca_${Date.now()}.docx`;
-    
+    const now = Date.now();
+    const filename = `cobranca/acao_cobranca_${now}.docx`;
+
     const blob = await put(filename, buffer, {
       access: "public",
       contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      addRandomSuffix: false, // 🔥 Remove sufixo aleatório (mais rápido)
-      cacheControlMaxAge: 3600 // 🔥 Cache de 1 hora
+      addRandomSuffix: false,
+      cacheControlMaxAge: 3600
     });
 
     const uploadTime = Date.now() - uploadStart;
     const totalTime = Date.now() - startTime;
 
-    console.log(`[EXPORT_DOCX_OK] Upload concluído em ${uploadTime}ms. Total: ${totalTime}ms`);
-    console.log(`[EXPORT_DOCX_OK] URL: ${blob.url}`);
+    logger.info("EXPORT_DOCX_OK", {
+      url: blob.url,
+      size: buffer.length,
+      timing: { generation: genTime, upload: uploadTime, total: totalTime }
+    });
 
     return res.status(200).json({
       ok: true,
-      url: blob.url, // ✅ URL HTTP/HTTPS compatível com wixLocation.to()
-      filename: `acao_cobranca_${Date.now()}.docx`,
+      url: blob.url,
+      filename: `acao_cobranca_${now}.docx`,
       size: buffer.length,
       timing: {
         generation: genTime,
@@ -165,12 +211,25 @@ module.exports = async (req, res) => {
 
   } catch (err) {
     const totalTime = Date.now() - startTime;
-    console.error(`[EXPORT_DOCX_ERR] Falha após ${totalTime}ms:`, err);
-    
-    return res.status(500).json({ 
-      ok: false, 
-      error: "Erro ao gerar DOCX", 
-      details: err?.message || String(err) 
+
+    // Se for timeout, devolve 504 (ajuda seu Wix a mostrar mensagem amigável)
+    if (looksLikeTimeout(err)) {
+      logger.error("EXPORT_DOCX_504", { ms: totalTime, error: String(err?.message || err) });
+      return res.status(504).json({
+        ok: false,
+        status: 504,
+        error: "Tempo limite excedido (504). Tente novamente. Se persistir, reduza o texto de 'Fatos'.",
+        details: String(err?.message || err)
+      });
+    }
+
+    logger.error("EXPORT_DOCX_ERR", { ms: totalTime, error: String(err?.message || err) });
+
+    return res.status(500).json({
+      ok: false,
+      status: 500,
+      error: "Erro ao gerar DOCX",
+      details: err?.message || String(err)
     });
   }
 };

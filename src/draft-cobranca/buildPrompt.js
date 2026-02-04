@@ -1,48 +1,52 @@
-/* src/draft-cobranca/buildPrompt.js */
-/* Prompt Jurídico – Versão 1.3 */
+/* ************************************************************************* */
+/* Nome do codigo: src/draft-cobranca/buildPrompt.js                         */
+/* Objetivo: construir prompt jurídico determinístico e econômico            */
+/* ************************************************************************* */
 
 const fs = require("fs");
 const path = require("path");
 
-function buildPrompt(data, { templateVersion, promptVersion }) {
-  const tplPath = path.join(process.cwd(), "templates", "cobranca_v1_2.json");
+const DEFAULT_TEMPLATE_VERSION = "cobranca_v1_2";
+const DEFAULT_PROMPT_VERSION = "1.3";
 
-  // Carrega template JSON com proteção contra erros
-  let tpl = {};
+// Proteção contra payload gigante
+const MAX_FIELD_CHARS = 8_000;
+
+function buildPrompt(payload = {}) {
+  const templateVersion = String(payload.templateVersion || DEFAULT_TEMPLATE_VERSION);
+  const promptVersion = String(payload.promptVersion || DEFAULT_PROMPT_VERSION);
+
+  const tplPath = path.join(process.cwd(), "templates", `${templateVersion}.json`);
+
+  let tpl;
   try {
-    const raw = fs.readFileSync(tplPath, "utf8");
-    tpl = JSON.parse(raw);
+    tpl = JSON.parse(fs.readFileSync(tplPath, "utf8"));
   } catch (e) {
     throw new Error(`Falha ao carregar template ${templateVersion}: ${e.message}`);
   }
 
-  /**
-   * PROMPT JURÍDICO – VERSÃO 1.3
-   */
-  const systemRules = [
-    "Você é um ASSISTENTE JURÍDICO SÊNIOR, especializado em Processo Civil Brasileiro e redação de petições iniciais.",
-    "Seu objetivo é redigir um RASCUNHO TÉCNICO COMPLETO E REVISÁVEL de uma AÇÃO DE COBRANÇA.",
+  const sectionGuidance = buildSectionGuidance(tpl);
+
+  /* ---------------------------------------------------------------------- */
+  /* SYSTEM PROMPT (regras fixas, não dependem do usuário)                   */
+  /* ---------------------------------------------------------------------- */
+
+  const system = [
+    "Você é um ASSISTENTE JURÍDICO SÊNIOR, especialista em Processo Civil Brasileiro.",
+    "Sua tarefa é redigir um RASCUNHO TÉCNICO e REVISÁVEL de uma AÇÃO DE COBRANÇA.",
     "",
-    "REGRAS OBRIGATÓRIAS DE EXECUÇÃO (NÃO FLEXÍVEIS):",
+    "REGRAS OBRIGATÓRIAS:",
+    "- NÃO invente fatos, datas, valores, partes ou documentos.",
+    "- NÃO estime ou calcule valores.",
+    "- NÃO cite jurisprudência específica.",
+    "- Use APENAS informações fornecidas.",
+    "- Se faltar algo essencial, escreva literalmente: [PENDENTE – INFORMAÇÃO NÃO FORNECIDA].",
     "",
-    "1) TOLERÂNCIA ZERO À ALUCINAÇÃO:",
-    "- NÃO invente fatos, datas, valores, índices, juros, qualificações ou endereços.",
-    "- NÃO ajuste, estime ou modifique valores monetários fornecidos.",
-    "- O modelo NÃO DECIDE NÚMEROS. Apenas reproduz valores recebidos no input.",
-    "- NÃO cite jurisprudência específica ou números de processos.",
-    "- Se faltar informação essencial, escreva literalmente: [PENDENTE – INFORMAÇÃO NÃO FORNECIDA].",
+    "ESTILO:",
+    "- Linguagem formal, técnica e conservadora.",
+    "- Texto claro, direto, sem retórica vazia.",
     "",
-    "2) USO CONTROLADO DE LEGISLAÇÃO:",
-    "- É PERMITIDO citar dispositivos amplamente reconhecidos do Código Civil e do Código de Processo Civil.",
-    "- Exemplos: inadimplemento, mora, responsabilidade civil, cobrança judicial.",
-    "- NÃO criar artigos inexistentes.",
-    "",
-    "3) TOM E ESTILO:",
-    "- Linguagem formal, técnica, impessoal e conservadora.",
-    "- Padrão de grandes escritórios de advocacia.",
-    "- Texto claro, objetivo, sem retórica vazia.",
-    "",
-    "4) ESTRUTURA OBRIGATÓRIA DA PEÇA:",
+    "ESTRUTURA OBRIGATÓRIA:",
     "- Endereçamento",
     "- Qualificação das Partes",
     "- Dos Fatos",
@@ -51,112 +55,81 @@ function buildPrompt(data, { templateVersion, promptVersion }) {
     "- Do Valor da Causa",
     "- Requerimentos Finais",
     "",
-    "5) REGRAS ESPECÍFICAS PARA A SEÇÃO 'DO DIREITO':",
-    "- A seção 'Do Direito' DEVE conter NO MÍNIMO 5 PARÁGRAFOS distintos.",
-    "- Cada parágrafo deve cumprir EXCLUSIVAMENTE uma função jurídica, na seguinte ordem:",
-    "  (i) natureza jurídica da obrigação assumida;",
-    "  (ii) caracterização da mora e do inadimplemento;",
-    "  (iii) consequências jurídicas do inadimplemento;",
-    "  (iv) fundamentação legal no Código Civil e no CPC;",
-    "  (v) adequação da via judicial e dos pedidos formulados.",
-    "- É PROIBIDO fundir temas em um mesmo parágrafo.",
+    "REGRAS PARA 'DO DIREITO':",
+    "- NO MÍNIMO 5 parágrafos.",
+    "- Cada parágrafo com função jurídica distinta:",
+    "  (1) natureza da obrigação;",
+    "  (2) mora e inadimplemento;",
+    "  (3) consequências jurídicas;",
+    "  (4) fundamentos legais (CC e CPC);",
+    "  (5) adequação da via judicial.",
     "",
-    "6) TRATAMENTO DE INCONSISTÊNCIAS:",
-    "- Se houver divergência entre valores, NÃO tente corrigir.",
-    "- Insira alerta textual entre colchetes e registre em 'alerts'.",
-    "",
-    "7) SAÍDA OBRIGATÓRIA:",
+    "SAÍDA OBRIGATÓRIA:",
     "- Responda EXCLUSIVAMENTE em JSON VÁLIDO.",
-    "- NÃO utilize markdown.",
-    "- NÃO escreva nada fora do JSON.",
-    "- Estrutura obrigatória:",
+    "- NÃO use markdown.",
+    "- Estrutura:",
     "{",
-    "  \"sections\": {",
-    "    \"enderecamento\": string,",
-    "    \"qualificacao\": string,",
-    "    \"fatos\": string,",
-    "    \"direito\": string,",
-    "    \"pedidos\": string,",
-    "    \"valor_causa\": string,",
-    "    \"requerimentos_finais\": string",
+    "  sections: {",
+    "    enderecamento: string,",
+    "    qualificacao: string,",
+    "    fatos: string,",
+    "    direito: string,",
+    "    pedidos: string,",
+    "    valor_causa: string,",
+    "    requerimentos_finais: string",
     "  },",
-    "  \"alerts\": [ { \"level\": \"info|warn|error\", \"code\": string, \"message\": string } ],",
-    "  \"meta\": { \"promptVersion\": string, \"templateVersion\": string }",
+    "  alerts: [ { level, code, message } ],",
+    "  meta: { promptVersion, templateVersion }",
     "}",
     "",
-    "- Qualquer violação destas regras INVALIDA a resposta."
+    "Qualquer violação invalida a resposta."
   ].join("\n");
 
-  const outputSchema = {
-    sections: {
-      enderecamento: "string",
-      qualificacao: "string",
-      fatos: "string",
-      direito: "string",
-      pedidos: "string",
-      valor_causa: "string",
-      requerimentos_finais: "string"
-    },
-    alerts: [{ level: "info|warn|error", code: "string", message: "string" }],
-    meta: { promptVersion: "string", templateVersion: "string" }
-  };
+  /* ---------------------------------------------------------------------- */
+  /* USER PROMPT (dados + orientação dinâmica)                               */
+  /* ---------------------------------------------------------------------- */
 
-  const sectionGuidance = buildSectionGuidance(tpl);
+  const safeData = sanitizeInputData(payload.data || {});
 
-  let userInstruction;
-  try {
-    userInstruction = JSON.stringify({
-      task: "Gerar petição inicial de Ação de Cobrança (rascunho técnico revisável).",
-      constraints: {
-        forbidHallucination: true,
-        forbidValueInference: true,
-        pendingMarker: "[PENDENTE – INFORMAÇÃO NÃO FORNECIDA]",
-        noCaseLawUnlessProvided: true
-      },
-      requiredStructure: [
-        "Endereçamento",
-        "Qualificação das Partes",
-        "Dos Fatos",
-        "Do Direito",
-        "Dos Pedidos",
-        "Do Valor da Causa",
-        "Requerimentos Finais"
-      ],
-      templateGuidance: tpl,
-      sectionGuidance,
-      inputData: data,
-      outputMustMatch: outputSchema,
-      meta: { promptVersion, templateVersion }
-    });
-  } catch (e) {
-    throw new Error(`Falha ao serializar userInstruction: ${e.message}`);
-  }
+  const user = JSON.stringify({
+    task: "Gerar rascunho técnico de Ação de Cobrança.",
+    inputData: safeData,
+    sectionGuidance,
+    meta: { promptVersion, templateVersion }
+  });
 
   return {
-    system: systemRules,
-    user: userInstruction,
+    system,
+    user,
     meta: { promptVersion, templateVersion }
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Helpers                                                                     */
-/* -------------------------------------------------------------------------- */
+/* ==========================================================================
+   Helpers
+============================================================================ */
+
+function sanitizeInputData(data) {
+  const out = {};
+  for (const [k, v] of Object.entries(data || {})) {
+    if (typeof v === "string") {
+      out[k] = v.length > MAX_FIELD_CHARS
+        ? v.slice(0, MAX_FIELD_CHARS) + "…"
+        : v;
+    } else if (typeof v === "object" && v !== null) {
+      out[k] = sanitizeInputData(v);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
 
 function buildSectionGuidance(tpl) {
   const sg = tpl.sectionGuidance || {};
   const out = {};
 
-  for (const [key, cfg] of Object.entries(sg)) {
-    out[key] = {
-      minParagraphs: cfg.minParagraphs || 1,
-      maxParagraphs: cfg.maxParagraphs || 3,
-      notes: cfg.notes || "",
-      structure: cfg.structure || []
-    };
-  }
-
-  const ensureKeys = [
+  const keys = [
     "enderecamento",
     "qualificacao",
     "fatos",
@@ -166,10 +139,14 @@ function buildSectionGuidance(tpl) {
     "requerimentos_finais"
   ];
 
-  for (const k of ensureKeys) {
-    if (!out[k]) {
-      out[k] = { minParagraphs: 1, maxParagraphs: 3, notes: "", structure: [] };
-    }
+  for (const k of keys) {
+    const cfg = sg[k] || {};
+    out[k] = {
+      minParagraphs: cfg.minParagraphs || 1,
+      maxParagraphs: cfg.maxParagraphs || 5,
+      notes: cfg.notes || "",
+      structure: cfg.structure || []
+    };
   }
 
   return out;

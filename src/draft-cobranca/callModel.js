@@ -1,17 +1,24 @@
-/* src/draft-cobranca/callModel.js */
+/* ************************************************************************* */
+/* Nome do codigo: src/draft-cobranca/callModel.js                           */
+/* Objetivo: chamar OpenAI Responses API de forma segura e previsível         */
+/* ************************************************************************* */
 
-async function callModel({ prompt }) {
+const OPENAI_URL = "https://api.openai.com/v1/responses";
+
+const DEFAULT_MODEL = "gpt-4.1";
+const DEFAULT_TIMEOUT_MS = 30_000; // 30s
+const MAX_OUTPUT_CHARS = 25_000;   // proteção contra resposta gigante
+
+/**
+ * @param {Object} params
+ * @param {{system:string, user:string}} params.prompt
+ * @param {Object=} params.meta
+ */
+async function callModel({ prompt, meta = {} }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY não configurado");
 
-  const model = process.env.OPENAI_MODEL || "gpt-4.1";
-  const url = "https://api.openai.com/v1/responses";
-
-  console.log("CALLMODEL → Payload enviado:", {
-    model,
-    system: prompt.system?.slice(0, 200),
-    user: prompt.user?.slice(0, 200)
-  });
+  const model = process.env.OPENAI_MODEL || DEFAULT_MODEL;
 
   const payload = {
     model,
@@ -22,73 +29,96 @@ async function callModel({ prompt }) {
     temperature: 0.2
   };
 
-  const r = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
+  const startedAt = Date.now();
+
+  // 1️⃣ chamada protegida com timeout
+  const r = await fetchWithTimeout(
+    OPENAI_URL,
+    {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
     },
-    body: JSON.stringify(payload)
-  });
+    DEFAULT_TIMEOUT_MS
+  );
 
-  console.log("CALLMODEL → Status HTTP:", r.status);
-
-  const text = await safeText(r);
-
-  console.log("CALLMODEL → RAW TEXT:", text);
+  const elapsedMs = Date.now() - startedAt;
 
   if (!r.ok) {
-    console.log("CALLMODEL → ERRO DA OPENAI:", text);
-    throw new Error(`OpenAI error ${r.status}: ${text}`);
+    const errText = await safeText(r);
+    throw new Error(`OpenAI error ${r.status}: ${truncate(errText, 500)}`);
   }
+
+  const rawText = await safeText(r);
 
   let json;
   try {
-    json = JSON.parse(text);
+    json = JSON.parse(rawText);
   } catch (e) {
-    console.log("CALLMODEL → FALHA NO PARSE JSON:", e.message);
-    throw new Error(`Resposta inválida da OpenAI: ${e.message}`);
+    throw new Error(`Resposta inválida da OpenAI (JSON): ${e.message}`);
   }
-
-  console.log("CALLMODEL → JSON PARSEADO:", json);
 
   const outputText = extractOutputText(json);
 
   if (!outputText) {
-    console.log("CALLMODEL → OUTPUT TEXT VAZIO");
-    throw new Error("Modelo não retornou texto utilizável em 'output'.");
+    throw new Error("Modelo não retornou texto utilizável.");
   }
 
-  console.log("CALLMODEL → OUTPUT TEXT:", outputText);
+  const finalText = truncate(outputText, MAX_OUTPUT_CHARS);
 
   return {
+    ok: true,
     model,
-    raw: json,
-    text: outputText
+    text: finalText,
+    meta: {
+      ...meta,
+      elapsedMs,
+      truncated: outputText.length > finalText.length
+    }
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Helpers                                                                     */
-/* -------------------------------------------------------------------------- */
+/* ============================================================================
+   Helpers
+============================================================================ */
+
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (e) {
+    if (e.name === "AbortError") {
+      throw new Error("Timeout ao chamar OpenAI");
+    }
+    throw e;
+  } finally {
+    clearTimeout(id);
+  }
+}
 
 function extractOutputText(resp) {
-  try {
-    if (Array.isArray(resp.output)) {
-      for (const msg of resp.output) {
-        if (Array.isArray(msg.content)) {
-          for (const c of msg.content) {
-            if (c.type === "output_text" && typeof c.text === "string") {
-              return c.text.trim();
-            }
-          }
-        }
+  if (!resp || !Array.isArray(resp.output)) return "";
+
+  for (const msg of resp.output) {
+    if (!Array.isArray(msg.content)) continue;
+
+    for (const c of msg.content) {
+      if (c.type === "output_text" && typeof c.text === "string") {
+        return c.text.trim();
       }
     }
-    return "";
-  } catch {
-    return "";
   }
+  return "";
+}
+
+function truncate(s, max) {
+  const str = String(s || "");
+  return str.length > max ? str.slice(0, max) + "…" : str;
 }
 
 async function safeText(r) {
@@ -100,4 +130,3 @@ async function safeText(r) {
 }
 
 module.exports = { callModel };
-

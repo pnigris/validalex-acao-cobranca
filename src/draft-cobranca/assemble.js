@@ -1,70 +1,100 @@
-/* src/draft-cobranca/assemble.js — versão corrigida para incluir sections */
+/* ************************************************************************* */
+/* Nome do codigo: src/draft-cobranca/assemble.js                            */
+/* Objetivo: normalizar saída final com html + sections (OBJETO por chave)   */
+/* ************************************************************************* */
 
-function assembleHtml({ data, sections, alerts, meta }) {
-  const groupedAlerts = groupAlerts(alerts);
-
-  const safe = (k) =>
-    (sections && typeof sections[k] === "string" && sections[k].trim().length > 0)
-      ? sections[k]
-      : `[PENDENTE – SEÇÃO '${k}' NÃO GERADA]`;
-
-  const sectionsForHtmlRelatorio = [
-    { heading: "Endereçamento",         bodyHtml: toParagraphs(safe("enderecamento")) },
-    { heading: "Qualificação das partes", bodyHtml: toParagraphs(safe("qualificacao")) },
-    { heading: "Dos fatos",              bodyHtml: toParagraphs(safe("fatos")) },
-    { heading: "Do direito",             bodyHtml: toParagraphs(safe("direito")) },
-    { heading: "Dos pedidos",            bodyHtml: toParagraphs(safe("pedidos")) },
-    { heading: "Do valor da causa",      bodyHtml: toParagraphs(safe("valor_causa")) },
-    { heading: "Requerimentos finais",   bodyHtml: toParagraphs(safe("requerimentos_finais")) }
-  ];
-
-  const model = meta?.model || process.env.OPENAI_MODEL || "unknown";
+function normalizeSectionsObject(sections) {
+  // Esperado: objeto com chaves fixas
+  // enderecamento, qualificacao, fatos, direito, pedidos, valor_causa, requerimentos_finais
+  const s = (sections && typeof sections === "object") ? sections : {};
 
   return {
-    // ✅ CORREÇÃO: incluir sections "plain" no retorno
-    sections,
-    sectionsForHtmlRelatorio,
-    alertsForHtml: groupedAlerts,
-    meta: {
-      jobId: data.jobId || undefined,
-      promptVersion: meta?.promptVersion || "unknown",
-      templateVersion: meta?.templateVersion || "unknown",
-      model
-    }
+    enderecamento: safeText(s.enderecamento),
+    qualificacao: safeText(s.qualificacao),
+    fatos: safeText(s.fatos),
+    direito: safeText(s.direito),
+    pedidos: safeText(s.pedidos),
+    valor_causa: safeText(s.valor_causa),
+    requerimentos_finais: safeText(s.requerimentos_finais),
   };
 }
 
-/* Helpers */
+function safeText(v) {
+  return (typeof v === "string") ? v.trim() : "";
+}
 
-function groupAlerts(alerts) {
-  const out = { error: [], warn: [], info: [] };
-  for (const a of alerts || []) {
-    const lvl = (a.level || "info").toLowerCase();
-    if (lvl === "error") out.error.push(a);
-    else if (lvl === "warn") out.warn.push(a);
-    else out.info.push(a);
+function hasAnySectionText(sectionsObj) {
+  if (!sectionsObj || typeof sectionsObj !== "object") return false;
+  return Object.values(sectionsObj).some((t) => typeof t === "string" && t.trim().length > 0);
+}
+
+function escapeHtml(s) {
+  return String(s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function nl2br(s) {
+  return escapeHtml(s).replace(/\n/g, "<br>");
+}
+
+function buildHtmlFromSections(sectionsObj) {
+  // HTML simples, determinístico (sem inventar conteúdo).
+  // Serve como fallback caso parsed.html não venha.
+  const order = [
+    ["enderecamento", "Endereçamento"],
+    ["qualificacao", "Qualificação"],
+    ["fatos", "Fatos"],
+    ["direito", "Fundamentos Jurídicos"],
+    ["pedidos", "Pedidos"],
+    ["valor_causa", "Valor da Causa"],
+    ["requerimentos_finais", "Requerimentos Finais"],
+  ];
+
+  let html = `<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5;">`;
+
+  for (const [key, label] of order) {
+    const txt = sectionsObj && sectionsObj[key] ? String(sectionsObj[key]).trim() : "";
+    if (!txt) continue;
+
+    html += `
+      <h3 style="margin: 18px 0 8px 0;">${escapeHtml(label)}</h3>
+      <div style="margin: 0 0 14px 0;">${nl2br(txt)}</div>
+    `;
   }
-  return out;
+
+  html += `</div>`;
+  return html;
 }
 
-function toParagraphs(text) {
-  const t = String(text || "").trim();
-  if (!t) {
-    return `<p><i>[PENDENTE – TEXTO NÃO FORNECIDO]</i></p>`;
+module.exports.assemble = function assemble(parsed, { payload } = {}) {
+  const ok = !!(parsed && parsed.ok);
+
+  // 1) sections sempre como OBJETO
+  const sections = normalizeSectionsObject(parsed && parsed.sections);
+
+  // 2) html: usa o que vier do parse; se não vier, constrói a partir das sections
+  let html = (parsed && typeof parsed.html === "string") ? parsed.html : "";
+  if (!html && hasAnySectionText(sections)) {
+    html = buildHtmlFromSections(sections);
   }
-  const parts = t.split(/\n{2,}/g).map((p) => p.trim()).filter(Boolean);
-  return parts
-    .map((p) => `<p>${esc(p).replaceAll("\n", "<br/>")}</p>`)
-    .join("");
-}
 
-function esc(s) {
-  return String(s)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
+  const alerts = Array.isArray(parsed && parsed.alerts) ? parsed.alerts : [];
+  const missing = Array.isArray(parsed && parsed.missing) ? parsed.missing : [];
 
-module.exports = { assembleHtml };
+  const meta = {
+    ...(parsed && parsed.meta ? parsed.meta : {}),
+    hasSections: hasAnySectionText(sections),
+  };
+
+  return {
+    ok,
+    html,
+    sections,
+    alerts,
+    missing,
+    meta,
+  };
+};
+

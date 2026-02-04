@@ -4,14 +4,15 @@
   "private": true,
   "type": "commonjs",
   "engines": {
-    "node": "24.x"
+    "node": "20.x"
   },
   "scripts": {
     "dev": "vercel dev",
     "start": "node -e \"console.log('serverless via Vercel')\""
   },
   "dependencies": {
-    "@vercel/blob": "^2.1.0",
-    "docx": "^9.5.1"
+    "@vercel/blob": "2.1.0",
+    "docx": "9.5.1"
   }
 }
+
