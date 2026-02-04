@@ -7,6 +7,7 @@ const fs = require("fs");
 const path = require("path");
 const PizZip = require("pizzip");
 const Docxtemplater = require("docxtemplater");
+const { put } = require("@vercel/blob");
 
 function setCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -15,21 +16,8 @@ function setCors(res) {
   res.setHeader("Access-Control-Max-Age", "86400");
 }
 
-function assertString(v) {
-  return typeof v === "string" ? v : "";
-}
+function s(v) { return typeof v === "string" ? v : ""; }
 
-/**
- * Espera um payload no formato:
- * {
- *   "templateVersion": "cobranca_v1_2",
- *   "doc": {
- *     "sections": { enderecamento, qualificacao, fatos, direito, pedidos, valor_causa, requerimentos_finais },
- *     "signature": { "nome": "...", "oab": "..." },
- *     "localData": "..."
- *   }
- * }
- */
 module.exports = async (req, res) => {
   setCors(res);
   if (req.method === "OPTIONS") return res.status(200).end();
@@ -39,58 +27,55 @@ module.exports = async (req, res) => {
     const body = req.body || {};
     const templateVersion = String(body.templateVersion || "cobranca_v1_2").trim();
 
-    const sections = (body.doc && body.doc.sections) ? body.doc.sections : null;
+    const sections = body?.doc?.sections;
     if (!sections || typeof sections !== "object") {
       return res.status(400).json({ ok: false, error: "doc.sections ausente ou inválido" });
     }
 
-    // ⚠️ Template físico: mantenha estável e versionado
-    // Ajuste o nome do arquivo conforme onde você colocar o template no repo
     const templatePath = path.join(process.cwd(), "templates", `${templateVersion}.docx`);
-
     if (!fs.existsSync(templatePath)) {
       return res.status(404).json({ ok: false, error: `Template DOCX não encontrado: ${templateVersion}.docx` });
     }
 
+    // 1) Render DOCX
     const buf = fs.readFileSync(templatePath);
     const zip = new PizZip(buf);
 
-    const doc = new Docxtemplater(zip, {
-      paragraphLoop: true,
-      linebreaks: true
+    const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
+
+    doc.render({
+      ENDERECAMENTO: s(sections.enderecamento),
+      QUALIFICACAO: s(sections.qualificacao),
+      FATOS: s(sections.fatos),
+      DIREITO: s(sections.direito),
+      PEDIDOS: s(sections.pedidos),
+      VALOR_CAUSA: s(sections.valor_causa),
+      REQUERIMENTOS_FINAIS: s(sections.requerimentos_finais),
+      LOCAL_DATA: s(body?.doc?.localData),
+      ASSINATURA_NOME: s(body?.doc?.signature?.nome),
+      ASSINATURA_OAB: s(body?.doc?.signature?.oab),
     });
 
-    const data = {
-      ENDERECAMENTO: assertString(sections.enderecamento),
-      QUALIFICACAO: assertString(sections.qualificacao),
-      FATOS: assertString(sections.fatos),
-      DIREITO: assertString(sections.direito),
-      PEDIDOS: assertString(sections.pedidos),
-      VALOR_CAUSA: assertString(sections.valor_causa),
-      REQUERIMENTOS_FINAIS: assertString(sections.requerimentos_finais),
-      LOCAL_DATA: assertString(body.doc && body.doc.localData),
-      ASSINATURA_NOME: assertString(body.doc && body.doc.signature && body.doc.signature.nome),
-      ASSINATURA_OAB: assertString(body.doc && body.doc.signature && body.doc.signature.oab)
-    };
+    const out = doc.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" });
 
-    doc.render(data);
+    // 2) Upload para Vercel Blob e retorna URL
+    const filename = `cobranca/${templateVersion}/acao_cobranca_${Date.now()}.docx`;
 
-    const out = doc.getZip().generate({
-      type: "nodebuffer",
-      compression: "DEFLATE"
+    const blob = await put(filename, out, {
+      access: "public", // link direto para download
+      contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      addRandomSuffix: true,
     });
 
-    const filename = `acao_cobranca_${Date.now()}.docx`;
-    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-    return res.status(200).send(out);
+    return res.status(200).json({
+      ok: true,
+      url: blob.url,
+      // opcional:
+      // downloadUrl: blob.downloadUrl,
+      // pathname: blob.pathname
+    });
 
   } catch (err) {
-    // docxtemplater costuma dar erro detalhado em err.properties.errors
-    return res.status(500).json({
-      ok: false,
-      error: "Erro ao gerar DOCX",
-      details: err && (err.message || String(err))
-    });
+    return res.status(500).json({ ok: false, error: "Erro ao gerar DOCX", details: err?.message || String(err) });
   }
 };

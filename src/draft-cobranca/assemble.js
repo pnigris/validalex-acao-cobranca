@@ -1,4 +1,4 @@
-/* src/draft-cobranca/assemble.js — versão reescrita */
+/* src/draft-cobranca/assemble.js — versão corrigida para incluir sections */
 
 function assembleHtml({ data, sections, alerts, meta }) {
   const groupedAlerts = groupAlerts(alerts);
@@ -21,6 +21,8 @@ function assembleHtml({ data, sections, alerts, meta }) {
   const model = meta?.model || process.env.OPENAI_MODEL || "unknown";
 
   return {
+    // ✅ CORREÇÃO: incluir sections "plain" no retorno
+    sections,
     sectionsForHtmlRelatorio,
     alertsForHtml: groupedAlerts,
     meta: {

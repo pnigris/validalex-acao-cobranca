@@ -1,4 +1,4 @@
-/* api/draft/cobranca.js - versão revisada para alertas agrupados */
+/* api/draft/cobranca.js - versão corrigida para incluir sections na resposta */
 
 const { requireAuth } = require("../shared/auth");
 const { rateLimit } = require("../shared/rateLimit");
@@ -84,6 +84,8 @@ module.exports = async (req, res) => {
       return ok(res, {
         ok: true,
         html,
+        // ✅ CORREÇÃO: sections vazio quando dados críticos faltam
+        sections: {},
         alerts: v.alerts,
         missing: v.missingCritical,
         meta: {
@@ -127,9 +129,11 @@ module.exports = async (req, res) => {
       model: assembled.meta.model
     });
 
+    // ✅ CORREÇÃO: incluir sections na resposta final
     return ok(res, {
       ok: true,
       html,
+      sections: assembled.sections,
       alerts: [...v.alerts, ...parsed.alerts],
       missing: [],
       meta: assembled.meta
@@ -177,7 +181,7 @@ async function readJson(req) {
   const raw = Buffer.concat(chunks).toString("utf8") || "{}";
   try {
     return JSON.parse(raw);
-  } catch {S
+  } catch {
     throw new Error("JSON inválido no body.");
   }
 }
@@ -204,5 +208,3 @@ function hashLite(s) {
   }
   return `h${(h >>> 0).toString(16)}`;
 }
-
-
