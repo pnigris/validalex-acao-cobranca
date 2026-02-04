@@ -1,9 +1,10 @@
 /* ************************************************************************* */
 /* Nome do codigo: api/export/cobrancaDocx.js                                 */
-/* Objetivo: gerar DOCX PROGRAMATICAMENTE (sem template quebrado)            */
+/* Objetivo: gerar DOCX programaticamente + upload otimizado para Blob       */
 /* ************************************************************************* */
 
 const { Document, Packer, Paragraph, TextRun, AlignmentType, HeadingLevel } = require("docx");
+const { put } = require("@vercel/blob");
 
 function setCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -21,7 +22,7 @@ function textToParagraphs(text, options = {}) {
   const lines = String(text || "").split("\n").filter(line => line.trim());
   return lines.map(line => new Paragraph({
     text: line.trim(),
-    spacing: { after: 200 }, // espaço após parágrafo
+    spacing: { after: 200 },
     alignment: options.alignment || AlignmentType.JUSTIFIED,
     ...options
   }));
@@ -29,15 +30,19 @@ function textToParagraphs(text, options = {}) {
 
 // Cria seção com título
 function createSection(title, content) {
-  return [
-    new Paragraph({
+  const paragraphs = [];
+  
+  if (title) {
+    paragraphs.push(new Paragraph({
       text: title,
       heading: HeadingLevel.HEADING_2,
       spacing: { before: 400, after: 200 },
       bold: true
-    }),
-    ...textToParagraphs(content)
-  ];
+    }));
+  }
+  
+  paragraphs.push(...textToParagraphs(content));
+  return paragraphs;
 }
 
 module.exports = async (req, res) => {
@@ -47,6 +52,8 @@ module.exports = async (req, res) => {
   if (req.method !== "POST") {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
+
+  const startTime = Date.now();
 
   try {
     const body = req.body || {};
@@ -59,7 +66,9 @@ module.exports = async (req, res) => {
       });
     }
 
-    // 🔥 GERAÇÃO PROGRAMÁTICA (sem template físico)
+    console.log("[EXPORT_DOCX] Iniciando geração do documento...");
+
+    // 🔥 GERAÇÃO PROGRAMÁTICA (resolve problema de tags quebradas)
     const doc = new Document({
       sections: [{
         properties: {},
@@ -118,24 +127,46 @@ module.exports = async (req, res) => {
       }]
     });
 
-    // Gera buffer do DOCX
+    console.log("[EXPORT_DOCX] Gerando buffer...");
     const buffer = await Packer.toBuffer(doc);
+    const genTime = Date.now() - startTime;
+    console.log(`[EXPORT_DOCX] Buffer gerado em ${genTime}ms. Tamanho: ${buffer.length} bytes`);
 
-    // 🔥 Retorna como base64 data URL (sem upload para Blob)
-    const base64 = buffer.toString("base64");
-    const dataUrl = `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${base64}`;
+    // 🔥 UPLOAD OTIMIZADO para Vercel Blob
+    console.log("[EXPORT_DOCX] Fazendo upload para Vercel Blob...");
+    const uploadStart = Date.now();
+    
+    const filename = `cobranca/acao_cobranca_${Date.now()}.docx`;
+    
+    const blob = await put(filename, buffer, {
+      access: "public",
+      contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      addRandomSuffix: false, // 🔥 Remove sufixo aleatório (mais rápido)
+      cacheControlMaxAge: 3600 // 🔥 Cache de 1 hora
+    });
 
-    console.log(`[EXPORT_DOCX_OK] Gerado com sucesso. Tamanho: ${buffer.length} bytes`);
+    const uploadTime = Date.now() - uploadStart;
+    const totalTime = Date.now() - startTime;
+
+    console.log(`[EXPORT_DOCX_OK] Upload concluído em ${uploadTime}ms. Total: ${totalTime}ms`);
+    console.log(`[EXPORT_DOCX_OK] URL: ${blob.url}`);
 
     return res.status(200).json({
       ok: true,
-      url: dataUrl,
+      url: blob.url, // ✅ URL HTTP/HTTPS compatível com wixLocation.to()
       filename: `acao_cobranca_${Date.now()}.docx`,
-      size: buffer.length
+      size: buffer.length,
+      timing: {
+        generation: genTime,
+        upload: uploadTime,
+        total: totalTime
+      }
     });
 
   } catch (err) {
-    console.error("[EXPORT_DOCX_ERR]", err);
+    const totalTime = Date.now() - startTime;
+    console.error(`[EXPORT_DOCX_ERR] Falha após ${totalTime}ms:`, err);
+    
     return res.status(500).json({ 
       ok: false, 
       error: "Erro ao gerar DOCX", 

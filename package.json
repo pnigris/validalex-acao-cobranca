@@ -11,6 +11,7 @@
     "start": "node -e \"console.log('serverless via Vercel')\""
   },
   "dependencies": {
+    "@vercel/blob": "^2.1.0",
     "docx": "^9.5.1"
   }
 }
