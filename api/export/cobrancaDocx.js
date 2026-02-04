@@ -1,6 +1,6 @@
 /* ************************************************************************* */
-/* Nome do codigo: api/export/cobrancaDocx.js                                 */
-/* Objetivo: gerar DOCX a partir das sections já validadas (SEM BLOB)         */
+/* Nome do codigo: api/export/cobrancaDocx.js                                */
+/* Objetivo: gerar DOCX a partir das sections já validadas (SEM BLOB)        */
 /* ************************************************************************* */
 
 const fs = require("fs");
