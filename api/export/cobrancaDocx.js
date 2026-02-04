@@ -28,6 +28,24 @@ function isObject(v) {
   return !!v && typeof v === "object" && !Array.isArray(v);
 }
 
+function parseBody(req) {
+  const b = req?.body;
+
+  // Vercel normalmente injeta body já parseado, mas às vezes vem string
+  if (!b) return {};
+  if (typeof b === "object") return b;
+
+  if (typeof b === "string") {
+    try {
+      return JSON.parse(b);
+    } catch {
+      return {};
+    }
+  }
+
+  return {};
+}
+
 function validateSections(sections) {
   if (!isObject(sections)) {
     return { ok: false, error: "doc.sections ausente ou inválido (esperado OBJETO)" };
@@ -85,6 +103,11 @@ function looksLikeTimeout(err) {
   return /\b504\b/.test(msg) || /gateway timeout/i.test(msg) || /timeout/i.test(msg) || /Tempo limite/i.test(msg);
 }
 
+function looksLikeBlobTokenMissing(err) {
+  const msg = String(err?.message || err || "");
+  return /No token found/i.test(msg) || /BLOB_READ_WRITE_TOKEN/i.test(msg);
+}
+
 module.exports = async function handler(req, res) {
   setCors(res);
 
@@ -105,7 +128,20 @@ module.exports = async function handler(req, res) {
     rateLimit(req, res, { limit: 20, windowMs: 60_000 });
     authGuard(req);
 
-    const body = req.body || {};
+    // ✅ blindagem do Blob
+    const hasBlobToken = !!process.env.BLOB_READ_WRITE_TOKEN;
+    if (!hasBlobToken) {
+      logger.error("EXPORT_DOCX_BLOB_TOKEN_MISSING", {
+        hint: "Configure BLOB_READ_WRITE_TOKEN em Environment Variables e faça Redeploy."
+      });
+      return sendJson(res, 500, {
+        ok: false,
+        status: 500,
+        error: "Armazenamento (Blob) não configurado no ambiente. Faça Redeploy após definir BLOB_READ_WRITE_TOKEN."
+      });
+    }
+
+    const body = parseBody(req);
     const sections = body?.doc?.sections;
 
     const v = validateSections(sections);
@@ -115,7 +151,8 @@ module.exports = async function handler(req, res) {
 
     logger.info("EXPORT_DOCX_START", {
       hasSections: true,
-      templateVersion: body?.templateVersion || "cobranca_v1_2"
+      templateVersion: body?.templateVersion || "cobranca_v1_2",
+      hasBlobToken: true
     });
 
     // ✅ Geração DOCX
@@ -193,6 +230,20 @@ module.exports = async function handler(req, res) {
         ok: false,
         status: 504,
         error: "Tempo limite excedido (504). Tente novamente. Se persistir, reduza o texto de 'Fatos'.",
+        details: msg
+      });
+    }
+
+    if (looksLikeBlobTokenMissing(err)) {
+      logger.error("EXPORT_DOCX_BLOB_TOKEN_ERR", {
+        ms,
+        error: msg,
+        hint: "Verifique se BLOB_READ_WRITE_TOKEN está em Production e faça Redeploy."
+      });
+      return sendJson(res, 500, {
+        ok: false,
+        status: 500,
+        error: "Falha no Blob (token ausente/inválido). Confirme BLOB_READ_WRITE_TOKEN em Production e faça Redeploy.",
         details: msg
       });
     }
