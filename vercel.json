@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/draft/cobrancaStart.js": { "maxDuration": 300 },
+    "api/draft/cobrancaStatus.js": { "maxDuration": 30 },
+    "api/draft/cobranca.js": { "maxDuration": 300 }
+  }
+}
