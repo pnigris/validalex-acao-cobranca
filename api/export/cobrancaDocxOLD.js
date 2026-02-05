@@ -1,39 +1,15 @@
 /* ************************************************************************* */
 /* Nome do codigo: api/export/cobrancaDocx.js                                 */
 /* Objetivo: gerar DOCX + upload para Vercel Blob e retornar {ok,url}         */
-/* Patches aplicados:                                                         */
-/* - Estilo global Arial 12pt + line-height 1.5                               */
-/* - Rodapé (local/data e assinatura) opcional: não imprime [PENDENTE...]     */
-/* - Blindagem de BLOB_READ_WRITE_TOKEN + parseBody resiliente                 */
 /* ************************************************************************* */
 
-const {
-  Document,
-  Packer,
-  Paragraph,
-  AlignmentType,
-  HeadingLevel,
-  LineRule
-} = require("docx");
-
+const { Document, Packer, Paragraph, AlignmentType, HeadingLevel } = require("docx");
 const { put } = require("@vercel/blob");
 
 const { authGuard } = require("../shared/auth.js");
 const { rateLimit } = require("../shared/rateLimit.js");
 const { logger } = require("../shared/logger.js");
 const { sendJson } = require("../shared/response.js");
-
-/* ============================================================================
-   DOCX STYLE CONSTANTS
-============================================================================ */
-
-const FONT_ARIAL = "Arial";
-const SIZE_12 = 24;   // docx uses half-points (12pt = 24)
-const LINE_15 = 360;  // 1.5 lines (twips)
-
-/* ============================================================================
-   CORS
-============================================================================ */
 
 function setCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -42,43 +18,33 @@ function setCors(res) {
   res.setHeader("Access-Control-Max-Age", "86400");
 }
 
-/* ============================================================================
-   INPUT HELPERS
-============================================================================ */
-
-// obrigatório (para corpo do draft): mantém política de pendência
-function sRequired(v) {
+function s(v) {
   return (typeof v === "string" && v.trim())
-    ? v.trim()
+    ? v
     : "[PENDENTE – INFORMAÇÃO NÃO FORNECIDA]";
-}
-
-// opcional (para rodapé/assinatura): NÃO imprime [PENDENTE...]
-function sOptional(v) {
-  const t = (typeof v === "string") ? v.trim() : "";
-  if (!t) return "";
-  if (/^\[PENDENTE/i.test(t)) return "";
-  return t;
 }
 
 function isObject(v) {
   return !!v && typeof v === "object" && !Array.isArray(v);
 }
 
-// Vercel normalmente injeta body já parseado, mas às vezes vem string
 function parseBody(req) {
   const b = req?.body;
+
+  // Vercel normalmente injeta body já parseado, mas às vezes vem string
   if (!b) return {};
   if (typeof b === "object") return b;
+
   if (typeof b === "string") {
-    try { return JSON.parse(b); } catch { return {}; }
+    try {
+      return JSON.parse(b);
+    } catch {
+      return {};
+    }
   }
+
   return {};
 }
-
-/* ============================================================================
-   VALIDATION
-============================================================================ */
 
 function validateSections(sections) {
   if (!isObject(sections)) {
@@ -106,26 +72,17 @@ function validateSections(sections) {
   return { ok: true };
 }
 
-/* ============================================================================
-   DOCX BUILDERS
-============================================================================ */
-
 function textToParagraphs(text) {
   const lines = String(text || "")
     .split("\n")
     .map(l => l.trim())
     .filter(Boolean);
 
-  if (lines.length === 0) {
-    return [new Paragraph({
-      text: "",
-      spacing: { line: LINE_15, lineRule: LineRule.AUTO }
-    })];
-  }
+  if (lines.length === 0) return [new Paragraph({ text: "" })];
 
   return lines.map(line => new Paragraph({
     text: line,
-    spacing: { after: 200, line: LINE_15, lineRule: LineRule.AUTO },
+    spacing: { after: 200 },
     alignment: AlignmentType.JUSTIFIED
   }));
 }
@@ -135,56 +92,11 @@ function section(title, content) {
     new Paragraph({
       text: title,
       heading: HeadingLevel.HEADING_2,
-      spacing: { before: 400, after: 200, line: LINE_15, lineRule: LineRule.AUTO }
+      spacing: { before: 400, after: 200 }
     }),
     ...textToParagraphs(content)
   ];
 }
-
-function buildOptionalFooter(body) {
-  const localData = sOptional(body?.doc?.localData);
-  const sigNome = sOptional(body?.doc?.signature?.nome);
-  const sigOab = sOptional(body?.doc?.signature?.oab);
-
-  // Se nada foi informado, não imprime nada (evita "pendente" no rodapé)
-  if (!localData && !sigNome && !sigOab) return [];
-
-  const out = [];
-
-  // espaçamento antes do rodapé
-  out.push(new Paragraph({ text: "", spacing: { after: 400, line: LINE_15, lineRule: LineRule.AUTO } }));
-
-  if (localData) {
-    out.push(new Paragraph({
-      text: localData,
-      alignment: AlignmentType.RIGHT,
-      spacing: { after: 300, line: LINE_15, lineRule: LineRule.AUTO }
-    }));
-  }
-
-  if (sigNome) {
-    out.push(new Paragraph({
-      text: sigNome,
-      alignment: AlignmentType.RIGHT,
-      bold: true,
-      spacing: { line: LINE_15, lineRule: LineRule.AUTO }
-    }));
-  }
-
-  if (sigOab) {
-    out.push(new Paragraph({
-      text: sigOab,
-      alignment: AlignmentType.RIGHT,
-      spacing: { line: LINE_15, lineRule: LineRule.AUTO }
-    }));
-  }
-
-  return out;
-}
-
-/* ============================================================================
-   ERROR CLASSIFIERS
-============================================================================ */
 
 function looksLikeTimeout(err) {
   const msg = String(err?.message || err || "");
@@ -196,14 +108,10 @@ function looksLikeBlobTokenMissing(err) {
   return /No token found/i.test(msg) || /BLOB_READ_WRITE_TOKEN/i.test(msg);
 }
 
-/* ============================================================================
-   HANDLER
-============================================================================ */
-
 module.exports = async function handler(req, res) {
   setCors(res);
 
-  // OPTIONS com Node puro
+  // ✅ OPTIONS com Node puro (sem res.status)
   if (req.method === "OPTIONS") {
     res.statusCode = 200;
     return res.end();
@@ -216,11 +124,11 @@ module.exports = async function handler(req, res) {
   const start = Date.now();
 
   try {
-    // segurança e limites
+    // ✅ barata primeiro
     rateLimit(req, res, { limit: 20, windowMs: 60_000 });
     authGuard(req);
 
-    // blindagem Blob
+    // ✅ blindagem do Blob
     const hasBlobToken = !!process.env.BLOB_READ_WRITE_TOKEN;
     if (!hasBlobToken) {
       logger.error("EXPORT_DOCX_BLOB_TOKEN_MISSING", {
@@ -247,18 +155,8 @@ module.exports = async function handler(req, res) {
       hasBlobToken: true
     });
 
-    // DOCX: estilo global Arial 12 + 1.5
+    // ✅ Geração DOCX
     const doc = new Document({
-      styles: {
-        default: {
-          document: {
-            run: { font: FONT_ARIAL, size: SIZE_12 },
-            paragraph: {
-              spacing: { line: LINE_15, lineRule: LineRule.AUTO }
-            }
-          }
-        }
-      },
       sections: [{
         properties: {},
         children: [
@@ -266,26 +164,41 @@ module.exports = async function handler(req, res) {
             text: "PETIÇÃO INICIAL – AÇÃO DE COBRANÇA",
             heading: HeadingLevel.TITLE,
             alignment: AlignmentType.CENTER,
-            spacing: { after: 400, line: LINE_15, lineRule: LineRule.AUTO }
+            spacing: { after: 400 }
           }),
 
-          ...textToParagraphs(sRequired(sections.enderecamento)),
-          ...section("I – QUALIFICAÇÃO DAS PARTES", sRequired(sections.qualificacao)),
-          ...section("II – DOS FATOS", sRequired(sections.fatos)),
-          ...section("III – DO DIREITO", sRequired(sections.direito)),
-          ...section("IV – DOS PEDIDOS", sRequired(sections.pedidos)),
-          ...section("V – DO VALOR DA CAUSA", sRequired(sections.valor_causa)),
-          ...section("VI – REQUERIMENTOS FINAIS", sRequired(sections.requerimentos_finais)),
+          ...textToParagraphs(s(sections.enderecamento)),
+          ...section("I – QUALIFICAÇÃO DAS PARTES", s(sections.qualificacao)),
+          ...section("II – DOS FATOS", s(sections.fatos)),
+          ...section("III – DO DIREITO", s(sections.direito)),
+          ...section("IV – DOS PEDIDOS", s(sections.pedidos)),
+          ...section("V – DO VALOR DA CAUSA", s(sections.valor_causa)),
+          ...section("VI – REQUERIMENTOS FINAIS", s(sections.requerimentos_finais)),
 
-          // Rodapé opcional: só imprime se houver conteúdo real (sem PENDENTE)
-          ...buildOptionalFooter(body)
+          new Paragraph({ text: "", spacing: { after: 400 } }),
+
+          new Paragraph({
+            text: s(body?.doc?.localData),
+            alignment: AlignmentType.RIGHT,
+            spacing: { after: 300 }
+          }),
+
+          new Paragraph({
+            text: s(body?.doc?.signature?.nome),
+            alignment: AlignmentType.RIGHT,
+            bold: true
+          }),
+          new Paragraph({
+            text: s(body?.doc?.signature?.oab),
+            alignment: AlignmentType.RIGHT
+          })
         ]
       }]
     });
 
     const buffer = await Packer.toBuffer(doc);
 
-    // Upload Blob
+    // ✅ Upload Blob
     const now = Date.now();
     const filename = `cobranca/acao_cobranca_${now}.docx`;
 
