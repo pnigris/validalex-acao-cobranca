@@ -1,77 +1,74 @@
 /* ************************************************************************* */
 /* Nome do codigo: api/shared/rateLimit.js                                   */
 /* Objetivo: rate limit simples (in-memory) para APIs serverless             */
+/* - NÃO encerra o request (não escreve em res)                              */
+/* - Retorna um objeto { ok, retryAfterSec, remaining, resetSec }            */
 /* ************************************************************************* */
 
 const buckets = new Map();
 
 /**
- * Aplica rate limit e ENCERRA o request se excedido.
+ * Rate limit in-memory (best-effort). Em serverless, não garante consistência
+ * entre instâncias, mas reduz picos e evita abuso por instância.
  *
  * @param {object} req
- * @param {object} res
  * @param {object=} opts
  * @param {number=} opts.limit      Máx. requisições por janela
  * @param {number=} opts.windowMs   Janela em ms
  * @param {string=} opts.key        Chave customizada (opcional)
+ * @returns {{ok:true, remaining:number, resetSec:number} | {ok:false, retryAfterSec:number, remaining:number, resetSec:number}}
  */
-function rateLimit(req, res, opts = {}) {
-  const limit = Number(opts.limit || 30);        // padrão: 30 req
-  const windowMs = Number(opts.windowMs || 60_000); // padrão: 1 min
+function rateLimit(req, opts = {}) {
+  const limit = Number(opts.limit || 30);
+  const windowMs = Number(opts.windowMs || 60_000);
 
   const now = Date.now();
 
-  // 🔑 chave automática (IP + rota)
+  // 🔑 chave automática (IP + rota) — ajuste se precisar agrupar por usuário
   const ip =
     req.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() ||
     req.socket?.remoteAddress ||
     "unknown";
 
   const route = req.url || "unknown";
-  const key = opts.key || `${ip}:${route}`;
+  const key = String(opts.key || `${ip}:${route}`);
 
-  const bucket = buckets.get(key);
+  const b = buckets.get(key);
 
-  if (!bucket || (now - bucket.windowStart) >= windowMs) {
+  // inicia/renova janela
+  if (!b || (now - b.windowStart) >= windowMs) {
     buckets.set(key, { windowStart: now, count: 1 });
 
-    setHeaders(res, limit - 1, windowMs);
-    return; // ✅ permitido, continua handler
+    return {
+      ok: true,
+      remaining: Math.max(0, limit - 1),
+      resetSec: Math.ceil(windowMs / 1000),
+    };
   }
 
-  bucket.count += 1;
-  const remaining = limit - bucket.count;
-  const resetMs = windowMs - (now - bucket.windowStart);
+  b.count += 1;
 
-  if (bucket.count > limit) {
-    // ❌ BLOQUEIA AQUI
-    setHeaders(res, 0, resetMs);
+  const elapsed = now - b.windowStart;
+  const resetMs = Math.max(0, windowMs - elapsed);
 
-    res.statusCode = 429;
-    res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({
+  const remaining = Math.max(0, limit - b.count);
+  const resetSec = Math.ceil(resetMs / 1000);
+
+  // excedeu
+  if (b.count > limit) {
+    return {
       ok: false,
-      status: 429,
-      error: "Muitas requisições. Tente novamente em alguns instantes.",
-      retryAfterMs: resetMs
-    }));
-
-    // ⚠️ IMPORTANTE: interrompe o fluxo
-    throw Object.assign(new Error("Rate limit exceeded"), { statusCode: 429 });
+      retryAfterSec: Math.max(1, resetSec),
+      remaining: 0,
+      resetSec,
+    };
   }
 
-  setHeaders(res, Math.max(0, remaining), resetMs);
-}
-
-/* ========================================================================== */
-
-function setHeaders(res, remaining, resetMs) {
-  try {
-    res.setHeader("X-RateLimit-Remaining", String(remaining));
-    res.setHeader("X-RateLimit-Reset", String(Math.max(0, resetMs)));
-  } catch (_) {
-    // ignore header errors
-  }
+  return {
+    ok: true,
+    remaining,
+    resetSec,
+  };
 }
 
 module.exports = { rateLimit };

@@ -4,7 +4,8 @@
 /* ************************************************************************* */
 
 const crypto = require("crypto");
-const { waitUntil } = require("@vercel/functions"); // ✅ Vercel Functions API
+const { waitUntil } = require("@vercel/functions");
+
 const { logger } = require("../shared/logger.js");
 const { rateLimit } = require("../shared/rateLimit.js");
 const { authGuard } = require("../shared/auth.js");
@@ -16,13 +17,13 @@ const { callModel } = require("../../src/draft-cobranca/callModel.js");
 const { parseModel } = require("../../src/draft-cobranca/parseModel.js");
 const { assemble } = require("../../src/draft-cobranca/assemble.js");
 
-const { writeJob, readJob, jobPath } = require("../shared/jobStore.js");
+const { writeJob, readJob } = require("../shared/jobStore.js");
 
 function setCors(res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.setHeader("Access-Control-Max-Age", "86400");
+  try { res.setHeader("Access-Control-Allow-Origin", "*"); } catch (_) {}
+  try { res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS"); } catch (_) {}
+  try { res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization"); } catch (_) {}
+  try { res.setHeader("Access-Control-Max-Age", "86400"); } catch (_) {}
 }
 
 function emptySectionsObject() {
@@ -39,25 +40,48 @@ function emptySectionsObject() {
 
 function hasAnySectionText(sectionsObj) {
   if (!sectionsObj || typeof sectionsObj !== "object") return false;
-  return Object.values(sectionsObj).some((t) => typeof t === "string" && t.trim().length > 0);
+  return Object.values(sectionsObj).some(
+    (t) => typeof t === "string" && t.trim().length > 0
+  );
 }
 
 module.exports = async function handler(req, res) {
   setCors(res);
-  if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST") return sendError(res, 405, "METHOD_NOT_ALLOWED", "Use POST");
+
+  if (req.method === "OPTIONS") {
+    res.statusCode = 200;
+    return res.end();
+  }
+
+  if (req.method !== "POST") {
+    return sendError(res, 405, "METHOD_NOT_ALLOWED", "Use POST");
+  }
 
   try {
-    rateLimit(req, res);
+    // 🔐 Rate limit correto (start é sensível)
+    const rl = rateLimit(req, { limit: 10, windowMs: 60_000, key: "draft_start" });
+    if (!rl.ok) {
+      return sendError(
+        res,
+        429,
+        "RATE_LIMIT",
+        "Muitas solicitações em pouco tempo. Aguarde alguns segundos e tente novamente.",
+        null,
+        { retryAfterSec: rl.retryAfterSec },
+        { "Retry-After": rl.retryAfterSec }
+      );
+    }
+
+    // 🔐 Auth
     authGuard(req);
 
     const payload = req.body || {};
     const v = validateDraftInput(payload);
 
-    // JobId sempre
+    // JobId sempre imprevisível
     const jobId = crypto.randomUUID();
 
-    // Se inválido, já grava "done" com retorno 400 equivalente (mas start sempre 202)
+    // ❌ inválido → grava job concluído com alertas (start SEMPRE retorna 202)
     if (!v.ok) {
       await writeJob(jobId, {
         ok: false,
@@ -74,10 +98,14 @@ module.exports = async function handler(req, res) {
         },
       });
 
-      return sendJson(res, 202, { ok: true, jobId, statusUrl: `/api/draft/cobrancaStatus?jobId=${jobId}` });
+      return sendJson(res, 202, {
+        ok: true,
+        jobId,
+        statusUrl: `/api/draft/cobrancaStatus?jobId=${jobId}`,
+      });
     }
 
-    // grava queued com o payload (para o worker consumir)
+    // 🕒 job queued
     await writeJob(jobId, {
       ok: true,
       status: "queued",
@@ -86,14 +114,18 @@ module.exports = async function handler(req, res) {
       payload,
     });
 
-    // dispara processamento fora do caminho crítico
+    // 🚀 processamento assíncrono
     waitUntil(runJob(jobId));
 
-    return sendJson(res, 202, { ok: true, jobId, statusUrl: `/api/draft/cobrancaStatus?jobId=${jobId}` });
+    return sendJson(res, 202, {
+      ok: true,
+      jobId,
+      statusUrl: `/api/draft/cobrancaStatus?jobId=${jobId}`,
+    });
   } catch (err) {
-    const msg = (err && err.message) ? String(err.message) : "Erro inesperado";
+    const msg = err?.message ? String(err.message) : "Erro inesperado";
     logger.error("DRAFT_COBRANCA_START_ERR", { error: msg, status: 500 });
-    return sendJson(res, 500, { ok: false, error: msg });
+    return sendError(res, 500, "START_ERR", "Falha ao iniciar o rascunho.", msg);
   }
 };
 
@@ -101,11 +133,14 @@ async function runJob(jobId) {
   const t0 = Date.now();
 
   try {
-    // marca running
-    await patchJob(jobId, { status: "running", updatedAt: Date.now(), meta: { stage: "running" } });
+    await patchJob(jobId, {
+      status: "running",
+      updatedAt: Date.now(),
+      meta: { stage: "running" },
+    });
 
     const j = await readJob(jobId);
-    const payload = j && j.payload ? j.payload : null;
+    const payload = j?.payload;
     if (!payload) throw new Error("Job payload ausente");
 
     const prompt = buildPrompt(payload);
@@ -115,18 +150,18 @@ async function runJob(jobId) {
     const out = assemble(parsed, { payload });
 
     const sections =
-      (out && out.sections && typeof out.sections === "object" && !Array.isArray(out.sections))
+      out?.sections && typeof out.sections === "object" && !Array.isArray(out.sections)
         ? out.sections
         : emptySectionsObject();
 
     const resp = {
-      ok: !!(out && out.ok),
-      html: (out && out.html) ? out.html : "",
+      ok: !!out?.ok,
+      html: out?.html || "",
       sections,
-      alerts: Array.isArray(out && out.alerts) ? out.alerts : [],
-      missing: Array.isArray(out && out.missing) ? out.missing : [],
+      alerts: Array.isArray(out?.alerts) ? out.alerts : [],
+      missing: Array.isArray(out?.missing) ? out.missing : [],
       meta: {
-        ...(out && out.meta ? out.meta : {}),
+        ...(out?.meta || {}),
         ms: Date.now() - t0,
       },
     };
@@ -135,7 +170,7 @@ async function runJob(jobId) {
       jobId,
       hasHtml: !!resp.html,
       hasSections: hasAnySectionText(resp.sections),
-      ms: resp?.meta?.ms,
+      ms: resp.meta.ms,
     });
 
     await writeJob(jobId, {
@@ -146,8 +181,8 @@ async function runJob(jobId) {
       result: resp,
     });
   } catch (err) {
-    const msg = (err && err.message) ? String(err.message) : "Erro inesperado";
-    const status = (err && err.statusCode) ? Number(err.statusCode) : 500;
+    const msg = err?.message ? String(err.message) : "Erro inesperado";
+    const status = err?.statusCode ? Number(err.statusCode) : 500;
 
     logger.error("DRAFT_COBRANCA_ASYNC_ERR", { jobId, error: msg, status });
 

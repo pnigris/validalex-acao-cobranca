@@ -1,9 +1,7 @@
 /* ************************************************************************* */
 /* Nome do codigo: api/export/cobrancaDocx.js                                 */
 /* Objetivo: gerar DOCX + upload para Vercel Blob e retornar {ok,url}         */
-/* - Arial 12pt + line-height 1.5                                            */
-/* - Rodapé opcional (não imprime [PENDENTE...])                              */
-/* - Logs por etapa + timeout no upload Blob                                 */
+/* Blindagem: idempotência real (hash do conteúdo) + rateLimit seguro         */
 /* ************************************************************************* */
 
 const {
@@ -14,23 +12,29 @@ const {
   HeadingLevel
 } = require("docx");
 
+const crypto = require("crypto");
 const { put } = require("@vercel/blob");
 
 const { authGuard } = require("../shared/auth.js");
 const { rateLimit } = require("../shared/rateLimit.js");
 const { logger } = require("../shared/logger.js");
-const { sendJson } = require("../shared/response.js");
+const { sendJson, sendError } = require("../shared/response.js");
+
+const { readJob, writeJob } = require("../shared/jobStore.js");
 
 // DOCX constants
 const FONT_ARIAL = "Arial";
 const SIZE_12 = 24;   // 12pt = 24 half-points
 const LINE_15 = 360;  // 1.5 lines (twips)
 
+// Cache/idempotência (no jobStore): mantém por 24h (você pode ajustar)
+const EXPORT_TTL_MS = 24 * 60 * 60 * 1000;
+
 function setCors(res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.setHeader("Access-Control-Max-Age", "86400");
+  try { res.setHeader("Access-Control-Allow-Origin", "*"); } catch (_) {}
+  try { res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS"); } catch (_) {}
+  try { res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization"); } catch (_) {}
+  try { res.setHeader("Access-Control-Max-Age", "86400"); } catch (_) {}
 }
 
 // obrigatório no corpo
@@ -95,10 +99,7 @@ function textToParagraphs(text) {
     .filter(Boolean);
 
   if (lines.length === 0) {
-    return [new Paragraph({
-      text: "",
-      spacing: { line: LINE_15 }
-    })];
+    return [new Paragraph({ text: "", spacing: { line: LINE_15 } })];
   }
 
   return lines.map(line => new Paragraph({
@@ -177,6 +178,36 @@ function withTimeout(promise, ms, label) {
   ]);
 }
 
+// stringify estável para hash determinístico
+function stableStringify(value) {
+  if (value == null) return "null";
+  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "number" || typeof value === "boolean") return JSON.stringify(value);
+
+  if (Array.isArray(value)) {
+    return "[" + value.map(stableStringify).join(",") + "]";
+  }
+
+  if (typeof value === "object") {
+    const keys = Object.keys(value).sort();
+    const parts = keys.map(k => JSON.stringify(k) + ":" + stableStringify(value[k]));
+    return "{" + parts.join(",") + "}";
+  }
+
+  return JSON.stringify(String(value));
+}
+
+function makeExportHash(body) {
+  const payload = {
+    templateVersion: String(body?.templateVersion || "cobranca_v1_2"),
+    sections: body?.doc?.sections || {},
+    localData: body?.doc?.localData || "",
+    signature: body?.doc?.signature || {}
+  };
+  const s = stableStringify(payload);
+  return crypto.createHash("sha256").update(s).digest("hex").slice(0, 32);
+}
+
 module.exports = async function handler(req, res) {
   setCors(res);
 
@@ -186,13 +217,26 @@ module.exports = async function handler(req, res) {
   }
 
   if (req.method !== "POST") {
-    return sendJson(res, 405, { ok: false, status: 405, error: "Method not allowed" });
+    return sendError(res, 405, "METHOD_NOT_ALLOWED", "Method not allowed");
   }
 
   const start = Date.now();
 
   try {
-    rateLimit(req, res, { limit: 20, windowMs: 60_000 });
+    // ✅ rate limit seguro (não escreve em res)
+    const rl = rateLimit(req, { limit: 20, windowMs: 60_000, key: "export_docx" });
+    if (!rl.ok) {
+      return sendError(
+        res,
+        429,
+        "RATE_LIMIT",
+        "Muitas requisições. Tente novamente em alguns instantes.",
+        null,
+        { retryAfterSec: rl.retryAfterSec },
+        { "Retry-After": rl.retryAfterSec }
+      );
+    }
+
     authGuard(req);
 
     const hasBlobToken = !!process.env.BLOB_READ_WRITE_TOKEN;
@@ -200,11 +244,12 @@ module.exports = async function handler(req, res) {
       logger.error("EXPORT_DOCX_BLOB_TOKEN_MISSING", {
         hint: "Configure BLOB_READ_WRITE_TOKEN em Environment Variables e faça Redeploy."
       });
-      return sendJson(res, 500, {
-        ok: false,
-        status: 500,
-        error: "Armazenamento (Blob) não configurado no ambiente. Faça Redeploy após definir BLOB_READ_WRITE_TOKEN."
-      });
+      return sendError(
+        res,
+        500,
+        "BLOB_TOKEN_MISSING",
+        "Armazenamento (Blob) não configurado no ambiente. Faça Redeploy após definir BLOB_READ_WRITE_TOKEN."
+      );
     }
 
     const body = parseBody(req);
@@ -212,13 +257,27 @@ module.exports = async function handler(req, res) {
 
     const v = validateSections(sections);
     if (!v.ok) {
-      return sendJson(res, 400, { ok: false, status: 400, error: v.error });
+      return sendError(res, 400, "BAD_REQUEST", v.error);
+    }
+
+    // ✅ Idempotência REAL: calcula hash do conteúdo e reutiliza se já exportado
+    const exportHash = makeExportHash(body);
+    const exportKey = `export/cobrancaDocx_${exportHash}`;
+
+    const cached = await readJob(exportKey);
+    if (cached && cached.ok && cached.url && cached.createdAt && (Date.now() - cached.createdAt) <= EXPORT_TTL_MS) {
+      logger.info("EXPORT_DOCX_CACHE_HIT", { exportHash });
+      return sendJson(res, 200, {
+        ok: true,
+        url: cached.url,
+        filename: cached.filename || `acao_cobranca_${exportHash}.docx`,
+        meta: { cached: true, ms: Date.now() - start }
+      });
     }
 
     logger.info("EXPORT_DOCX_START", {
-      hasSections: true,
       templateVersion: body?.templateVersion || "cobranca_v1_2",
-      hasBlobToken: true
+      exportHash
     });
 
     // DOCX: estilo global Arial 12 + 1.5
@@ -254,31 +313,42 @@ module.exports = async function handler(req, res) {
       }]
     });
 
-    logger.info("EXPORT_DOCX_BUFFER_START", {});
+    logger.info("EXPORT_DOCX_BUFFER_START", { exportHash });
     const buffer = await withTimeout(Packer.toBuffer(doc), 15_000, "Packer.toBuffer");
-    logger.info("EXPORT_DOCX_BUFFER_OK", { size: buffer.length });
+    logger.info("EXPORT_DOCX_BUFFER_OK", { exportHash, size: buffer.length });
 
-    const now = Date.now();
-    const filename = `cobranca/acao_cobranca_${now}.docx`;
+    // ✅ Nome determinístico: reforça idempotência no Blob também
+    const filename = `cobranca/acao_cobranca_${exportHash}.docx`;
 
-    logger.info("EXPORT_DOCX_BLOB_PUT_START", { filename });
+    logger.info("EXPORT_DOCX_BLOB_PUT_START", { filename, exportHash });
     const blob = await withTimeout(put(filename, buffer, {
       access: "public",
       contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       addRandomSuffix: false,
       cacheControlMaxAge: 3600
     }), 15_000, "Blob.put");
-    logger.info("EXPORT_DOCX_BLOB_PUT_OK", { url: blob?.url });
+    logger.info("EXPORT_DOCX_BLOB_PUT_OK", { exportHash, url: blob?.url });
 
     const ms = Date.now() - start;
-    logger.info("EXPORT_DOCX_OK", { ms, size: buffer.length });
+
+    // ✅ grava cache idempotente
+    await writeJob(exportKey, {
+      ok: true,
+      url: blob.url,
+      filename: `acao_cobranca_${exportHash}.docx`,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      meta: { exportHash, size: buffer.length, ms }
+    });
+
+    logger.info("EXPORT_DOCX_OK", { exportHash, ms, size: buffer.length });
 
     return sendJson(res, 200, {
       ok: true,
       url: blob.url,
-      filename: `acao_cobranca_${now}.docx`,
+      filename: `acao_cobranca_${exportHash}.docx`,
       size: buffer.length,
-      meta: { ms }
+      meta: { ms, exportHash }
     });
 
   } catch (err) {
