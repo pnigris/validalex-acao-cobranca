@@ -244,7 +244,7 @@ module.exports = async function handler(req, res) {
           ...textToParagraphs(sRequired(sections.enderecamento)),
           ...section("I – QUALIFICAÇÃO DAS PARTES", sRequired(sections.qualificacao)),
           ...section("II – DOS FATOS", sRequired(sections.fatos)),
-          ...section("III – DO DIREITO", sRequired(sections.direito)),
+          ...section("III – DOS FUNDAMENTOS JURÍDICOS", sRequired(sections.direito)),
           ...section("IV – DOS PEDIDOS", sRequired(sections.pedidos)),
           ...section("V – DO VALOR DA CAUSA", sRequired(sections.valor_causa)),
           ...section("VI – REQUERIMENTOS FINAIS", sRequired(sections.requerimentos_finais)),
