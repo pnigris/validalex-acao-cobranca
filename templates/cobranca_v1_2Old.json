@@ -1,6 +1,7 @@
 {
-  "templateVersion": "cobranca_v1_2",
+  "templateVersion": "cobranca_v1.2",
   "language": "pt-BR",
+
   "style": {
     "tone": "formal, técnico, objetivo, conservador",
     "constraints": [
@@ -13,6 +14,7 @@
       "qualquer dado ausente deve ser marcado com [PENDENTE – INFORMAÇÃO NÃO FORNECIDA]"
     ]
   },
+
   "structure": [
     "Endereçamento",
     "Qualificação das Partes",
@@ -22,6 +24,7 @@
     "Do Valor da Causa",
     "Requerimentos Finais"
   ],
+
   "sectionGuidance": {
     "enderecamento": {
       "minParagraphs": 1,
@@ -39,22 +42,20 @@
       "notes": "Narração objetiva e cronológica, sem adicionar valores ou datas não fornecidos. Tentativas extrajudiciais só se descritas no input."
     },
     "direito": {
-      "minParagraphs": 3,
-      "maxParagraphs": 6,
+      "minParagraphs": 1,
+      "maxParagraphs": 5,
       "structure": [
-        "Natureza da obrigação e sua exigibilidade (obrigação de pagar quantia certa)",
-        "Configuração da mora/inadimplemento e seus efeitos",
-        "Base legal mínima no Código Civil (mencionar expressamente os arts. 389, 395 e 397)",
-        "Base legal mínima no CPC (mencionar expressamente arts. 319 e 373; e, se compatível com o caso, art. 85 para honorários)",
-        "Adequação da via eleita e coerência com os pedidos"
+        "Natureza da obrigação assumida e sua exigibilidade",
+        "Configuração da mora e do inadimplemento",
+        "Efeitos jurídicos do inadimplemento da obrigação",
+        "Fundamentação legal no Código Civil e no CPC",
+        "Adequação da via eleita e do pedido formulado"
       ],
       "rules": [
-        "O texto desta seção deve ser intitulado e referenciado como 'Do Direito' (não usar títulos alternativos como 'Fundamentos Jurídicos')",
         "Cada parágrafo deve tratar exclusivamente de um item da estrutura",
         "É vedada repetição de ideias entre parágrafos",
         "Não citar números de processos ou acórdãos",
-        "Deve citar explicitamente os artigos mínimos: CC 389, 395, 397 e CPC 319, 373 (sem extrapolar para legislação extravagante)",
-        "Se faltarem dados para afirmar algo específico, declarar como [PENDENTE – INFORMAÇÃO NÃO FORNECIDA] e manter a fundamentação em nível geral"
+        "Pode citar artigos de lei de forma genérica (ex: Código Civil, CPC)"
       ]
     },
     "pedidos": {
@@ -73,12 +74,13 @@
       "notes": "Fecho padrão com protesto por provas. Local e data devem ser [PENDENTE – …] se não fornecidos."
     }
   },
+
   "legalGuidance": {
     "defaultBasis": [
-      "obrigação de pagar quantia certa e perdas e danos em caso de inadimplemento (Código Civil, arts. 389, 395 e 397)",
-      "mora e inadimplemento, com cabimento de correção monetária e juros legais (sem fixar índice/termo inicial sem input)",
-      "requisitos formais da petição inicial e ônus da prova (CPC, arts. 319 e 373)",
-      "honorários sucumbenciais apenas como pedido, sem quantificação sem base (CPC, art. 85)"
+      "obrigação de pagar quantia certa (artigos 389, 395, 397 do CC)",
+      "mora e inadimplemento",
+      "necessidade de recomposição do valor nominal via correção monetária e juros legais",
+      "cabimento da ação de cobrança conforme sistemática do CPC"
     ],
     "doNotDo": [
       "não criar números de contrato ou recibos",
@@ -87,16 +89,19 @@
       "não incluir narrativa ofensiva ou especulativa"
     ]
   },
+
   "placeholders": {
     "pending": "[PENDENTE – INFORMAÇÃO NÃO FORNECIDA]",
     "inconsistency": "[ALERTA – INCONSISTÊNCIA IDENTIFICADA]"
   },
+
   "runtime": {
     "supportsDynamicParagraphValidation": true,
     "strictOutput": true,
     "allowExpandableModel": false,
     "maxHallucinationTolerance": 0
   },
+
   "compatibility": {
     "minModel": "gpt-4o",
     "recommendedModel": "gpt-5.1",
