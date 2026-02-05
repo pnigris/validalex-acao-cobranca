@@ -1,13 +1,13 @@
 /* ************************************************************************* */
 /* Nome do codigo: src/draft-cobranca/callModel.js                           */
-/* Objetivo: chamar OpenAI Responses API de forma segura e previsível        */
+/* Objetivo: chamar OpenAI Responses API de forma segura e previsível         */
 /* ************************************************************************* */
 
 const OPENAI_URL = "https://api.openai.com/v1/responses";
 
 const DEFAULT_MODEL = "gpt-4.1";
-const DEFAULT_TIMEOUT_MS = 180_000; // 3 min (antes: 30s)
-const MAX_OUTPUT_CHARS = 25_000;    // proteção contra resposta gigante
+const DEFAULT_TIMEOUT_MS = 30_000; // 30s
+const MAX_OUTPUT_CHARS = 25_000;   // proteção contra resposta gigante
 
 /**
  * @param {Object} params
@@ -31,31 +31,25 @@ async function callModel({ prompt, meta = {} }) {
 
   const startedAt = Date.now();
 
-  // 1️⃣ chamada protegida com timeout + 1 retry simples
-  const r = await withRetry(
-    () =>
-      fetchWithTimeout(
-        OPENAI_URL,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify(payload)
-        },
-        DEFAULT_TIMEOUT_MS
-      ),
-    1
+  // 1️⃣ chamada protegida com timeout
+  const r = await fetchWithTimeout(
+    OPENAI_URL,
+    {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    },
+    DEFAULT_TIMEOUT_MS
   );
 
   const elapsedMs = Date.now() - startedAt;
 
   if (!r.ok) {
     const errText = await safeText(r);
-    const err = new Error(`OpenAI error ${r.status}: ${truncate(errText, 500)}`);
-    err.statusCode = r.status; // propaga status HTTP quando existir
-    throw err;
+    throw new Error(`OpenAI error ${r.status}: ${truncate(errText, 500)}`);
   }
 
   const rawText = await safeText(r);
@@ -91,24 +85,6 @@ async function callModel({ prompt, meta = {} }) {
    Helpers
 ============================================================================ */
 
-// 🔁 Retry simples (1 retry = total 2 tentativas)
-async function withRetry(fn, retries = 1) {
-  let lastErr;
-
-  for (let i = 0; i <= retries; i++) {
-    try {
-      return await fn();
-    } catch (e) {
-      lastErr = e;
-      if (i < retries) {
-        await new Promise((r) => setTimeout(r, 800));
-      }
-    }
-  }
-
-  throw lastErr;
-}
-
 async function fetchWithTimeout(url, options, timeoutMs) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
@@ -116,10 +92,8 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } catch (e) {
-    if (e && e.name === "AbortError") {
-      const err = new Error("Timeout ao chamar OpenAI");
-      err.statusCode = 504; // ✅ timeout correto (gateway timeout)
-      throw err;
+    if (e.name === "AbortError") {
+      throw new Error("Timeout ao chamar OpenAI");
     }
     throw e;
   } finally {
