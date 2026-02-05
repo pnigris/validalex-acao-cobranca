@@ -1,9 +1,11 @@
 /* ************************************************************************* */
 /* api/shared/jobStore.js                                                    */
 /* Persistência simples de jobs via Vercel Blob (JSON)                        */
+/* - Write: put(pathname) com overwrite                                      */
+/* - Read: head(pathname) -> url -> fetch(url)                               */
 /* ************************************************************************* */
 
-const { put, get } = require("@vercel/blob");
+const { put, head } = require("@vercel/blob");
 
 function jobPath(jobId) {
   return `jobs/cobranca/${jobId}.json`;
@@ -11,25 +13,32 @@ function jobPath(jobId) {
 
 async function writeJob(jobId, obj) {
   const pathname = jobPath(jobId);
-  // allowOverwrite permite atualizar o mesmo pathname. :contentReference[oaicite:2]{index=2}
+
   const blob = await put(pathname, JSON.stringify(obj || {}), {
     access: "public",
     contentType: "application/json",
     addRandomSuffix: false,
-    allowOverwrite: true,
+    allowOverwrite: true
   });
+
   return blob.url;
 }
 
 async function readJob(jobId) {
   const pathname = jobPath(jobId);
+
   try {
-    const r = await get(pathname);
-    if (!r) return null;
+    // 1) pega metadata do blob (inclui a URL real)
+    const meta = await head(pathname);
+    if (!meta || !meta.url) return null;
+
+    // 2) baixa o conteúdo via URL
+    const r = await fetch(meta.url, { method: "GET" });
+    if (!r.ok) return null;
+
     const txt = await r.text();
     return JSON.parse(txt);
-  } catch (e) {
-    // se não existe, retorna null
+  } catch (_) {
     return null;
   }
 }
