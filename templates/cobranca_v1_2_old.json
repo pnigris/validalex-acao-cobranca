@@ -39,29 +39,22 @@
       "notes": "Narração objetiva e cronológica, sem adicionar valores ou datas não fornecidos. Tentativas extrajudiciais só se descritas no input."
     },
     "direito": {
-      "minParagraphs": 6,
-      "maxParagraphs": 10,
+      "minParagraphs": 3,
+      "maxParagraphs": 6,
       "structure": [
-        "Validade da relação obrigacional (negócio jurídico válido, objeto lícito e partes capazes) — se não houver dados, manter em nível geral",
-        "Natureza da obrigação e sua exigibilidade (obrigação de pagar quantia certa) e força vinculante do pactuado",
-        "Configuração do inadimplemento e da mora (mora ex re, quando aplicável) e seus efeitos",
-        "Consequências do inadimplemento: perdas e danos, juros e correção monetária (sem fixar índice/termo inicial sem input)",
-        "Base legal mínima no Código Civil (mencionar expressamente os arts. 389, 395 e 397; e, se compatível, mencionar 104/421/422 sem criar fatos)",
-        "Ônus da prova e estratégia probatória (CPC, art. 373) com ênfase em prova documental",
-        "Requisitos formais e adequação da via eleita (CPC, art. 319) e coerência com os pedidos",
-        "Honorários sucumbenciais apenas como pedido (CPC, art. 85), sem quantificação",
-        "Adequação final entre causa de pedir, pedidos e provas (fecho lógico da seção)"
+        "Natureza da obrigação e sua exigibilidade (obrigação de pagar quantia certa)",
+        "Configuração da mora/inadimplemento e seus efeitos",
+        "Base legal mínima no Código Civil (mencionar expressamente os arts. 389, 395 e 397)",
+        "Base legal mínima no CPC (mencionar expressamente arts. 319 e 373; e, se compatível com o caso, art. 85 para honorários)",
+        "Adequação da via eleita e coerência com os pedidos"
       ],
       "rules": [
         "O texto desta seção deve ser intitulado e referenciado como 'Do Direito' (não usar títulos alternativos como 'Fundamentos Jurídicos')",
-        "Cada parágrafo deve tratar exclusivamente de um item da estrutura (1 item = 1 parágrafo, sem misturar temas)",
+        "Cada parágrafo deve tratar exclusivamente de um item da estrutura",
         "É vedada repetição de ideias entre parágrafos",
-        "Não citar números de processos, acórdãos, súmulas ou jurisprudência específica",
+        "Não citar números de processos ou acórdãos",
         "Deve citar explicitamente os artigos mínimos: CC 389, 395, 397 e CPC 319, 373 (sem extrapolar para legislação extravagante)",
-        "Menções adicionais ao Código Civil (ex.: 104, 421, 422) são permitidas apenas em nível geral e sem criar fatos",
-        "Se faltarem dados para afirmar algo específico, declarar como [PENDENTE – INFORMAÇÃO NÃO FORNECIDA] e manter a fundamentação em nível geral",
-        "Evitar linguagem conclusiva sobre fatos controvertidos; manter narrativa técnica e demonstrativa",
-        "Antecipar defesas típicas (pagamento, inexistência do débito, excesso) apenas como tese geral de ônus probatório, sem inventar fatos"
+        "Se faltarem dados para afirmar algo específico, declarar como [PENDENTE – INFORMAÇÃO NÃO FORNECIDA] e manter a fundamentação em nível geral"
       ]
     },
     "pedidos": {
@@ -85,9 +78,7 @@
       "obrigação de pagar quantia certa e perdas e danos em caso de inadimplemento (Código Civil, arts. 389, 395 e 397)",
       "mora e inadimplemento, com cabimento de correção monetária e juros legais (sem fixar índice/termo inicial sem input)",
       "requisitos formais da petição inicial e ônus da prova (CPC, arts. 319 e 373)",
-      "honorários sucumbenciais apenas como pedido, sem quantificação sem base (CPC, art. 85)",
-      "validade do negócio jurídico e força vinculante do pactuado (Código Civil, art. 104; e, de forma geral, arts. 421 e 422)",
-      "ônus da prova com ênfase em prova documental e fatos impeditivos/modificativos/extintivos (CPC, art. 373)"
+      "honorários sucumbenciais apenas como pedido, sem quantificação sem base (CPC, art. 85)"
     ],
     "doNotDo": [
       "não criar números de contrato ou recibos",
