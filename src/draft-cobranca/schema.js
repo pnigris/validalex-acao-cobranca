@@ -4,7 +4,7 @@
 /* ************************************************************************* */
 
 module.exports = {
-  version: "cobranca-form-1.1.0",
+  version: "cobranca-form-1.2.0",
 
   /**
    * Campos cuja ausência BLOQUEIA a geração do rascunho
@@ -49,8 +49,14 @@ module.exports = {
     },
 
     {
-      path: "divida.origem",
-      label: "Origem da dívida",
+      path: "divida.origem_categoria",
+      label: "Origem da dívida - Categoria",
+      type: "string",
+      minLength: 3
+    },
+    {
+      path: "divida.origem_subtipo",
+      label: "Origem da dívida - Subtipo",
       type: "string",
       minLength: 3
     },
@@ -79,6 +85,10 @@ module.exports = {
    * Campos opcionais com impacto jurídico
    */
   optional: {
+    "divida.origem_label": {
+      type: "string",
+      impact: "clareza da relação obrigacional"
+    },
     "fatos.tentativa_extrajudicial": {
       type: "boolean",
       impact: "reduz risco de improcedência",

@@ -17,6 +17,63 @@
  *   meta: Object
  * }}
  */
+
+// Origem da dívida: categorias e subtipos permitidos (espelha o frontend)
+const ORIGEM_POR_CATEGORIA = {
+  CONTRATO: [
+    "CONTRATO_COMPRA_VENDA",
+    "CONTRATO_PRESTACAO_SERVICOS",
+    "CONTRATO_EMPREITADA",
+    "CONTRATO_LOCACAO",
+    "CONTRATO_MUTUO",
+    "FORNECIMENTO_PRODUTOS",
+    "LICENCIAMENTO_SOFTWARE_SAAS",
+    "CONTRATO_MANDATO",
+    "CONTRATO_SOCIEDADE",
+    "CONTRATO_ATIPICO"
+  ],
+  TITULO_PRESCRITO: [
+    "CHEQUE_PRESCRITO",
+    "NOTA_PROMISSORIA_PRESCRITA",
+    "DUPLICATA_PRESCRITA"
+  ],
+  ENRIQUECIMENTO_SEM_CAUSA: [
+    "PAGAMENTO_INDEVIDO",
+    "RETENCAO_INDEVIDA",
+    "GESTAO_NEGOCIOS"
+  ],
+  ACORDO: [
+    "ACORDO_EXTRAJUDICIAL"
+  ],
+  INDENIZACAO: [
+    "INDENIZACAO_CONTRATUAL",
+    "INDENIZACAO_EXTRACONTRATUAL"
+  ],
+  CONVERSAO: [
+    "CONVERSAO_PERDAS_DANOS"
+  ],
+  CONDOMINIO: [
+    "COTAS_CONDOMINIAIS"
+  ],
+  CONSUMO: [
+    "SERVICOS_ESSENCIAIS",
+    "MENSALIDADES"
+  ],
+  HONORARIOS: [
+    "HONORARIOS_CONTRATUAIS"
+  ]
+};
+
+function isValidOrigemCategoria(cat) {
+  return !!cat && Object.prototype.hasOwnProperty.call(ORIGEM_POR_CATEGORIA, cat);
+}
+
+function isValidOrigemSubtipo(cat, sub) {
+  if (!isValidOrigemCategoria(cat)) return false;
+  if (!sub) return false;
+  return ORIGEM_POR_CATEGORIA[cat].includes(sub);
+}
+
 function validateDraftInput(data, schema = {}, meta = {}) {
   const missing = [];
   const alerts = [];
@@ -33,6 +90,45 @@ function validateDraftInput(data, schema = {}, meta = {}) {
     if (isEmpty(val)) {
       missing.push({ path: item.path, label: item.label });
     }
+  }
+
+  // -----------------------------------------------------------------------
+  // Origem da dívida (categoria + subtipo) - coerência e blindagem
+  // -----------------------------------------------------------------------
+  const origemCat = String(getByPath(data, "divida.origem_categoria") || "").trim();
+  const origemSub = String(getByPath(data, "divida.origem_subtipo") || "").trim();
+
+  // Regra: se categoria existe, subtipo é obrigatório (redundância com schema, mas explícito)
+  if (origemCat && !origemSub) {
+    missing.push({ path: "divida.origem_subtipo", label: "Origem da dívida - Subtipo" });
+  }
+
+  // Se subtipo existe sem categoria, isso é payload inconsistente (ou manipulação)
+  if (!origemCat && origemSub) {
+    missing.push({ path: "divida.origem_categoria", label: "Origem da dívida - Categoria" });
+    alerts.push({
+      level: "error",
+      code: "ORIGEM_INCONSISTENTE",
+      message: "Origem da dívida inconsistente: subtipo informado sem categoria."
+    });
+  }
+
+  // Categoria inválida
+  if (origemCat && !isValidOrigemCategoria(origemCat)) {
+    alerts.push({
+      level: "error",
+      code: "ORIGEM_CATEGORIA_INVALIDA",
+      message: "Origem da dívida - Categoria inválida. Selecione uma categoria permitida no formulário."
+    });
+  }
+
+  // Subtipo inválido para a categoria
+  if (origemCat && origemSub && isValidOrigemCategoria(origemCat) && !isValidOrigemSubtipo(origemCat, origemSub)) {
+    alerts.push({
+      level: "error",
+      code: "ORIGEM_SUBTIPO_INVALIDO",
+      message: "Origem da dívida - Subtipo inválido para a categoria selecionada."
+    });
   }
 
   // -----------------------------------------------------------------------

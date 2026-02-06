@@ -184,7 +184,6 @@ function buildPrompt(payload = {}) {
   /* ---------------------------------------------------------------------- */
 
   const safeData = sanitizeInputData(payload.data || {});
-  normalizeDraftInputData(safeData);
 
   const user = JSON.stringify({
     task: "Gerar rascunho técnico, robusto e juridicamente elaborado de Ação de Cobrança.",
@@ -203,33 +202,6 @@ function buildPrompt(payload = {}) {
 /* ==========================================================================
    Helpers
 ============================================================================ */
-
-function normalizeDraftInputData(data) {
-  // Cirúrgico: NÃO altera o conteúdo do prompt (SYSTEM/USER).
-  // Apenas garante contrato mínimo de campos no inputData para reduzir ambiguidade
-  // e manter compatibilidade com versões antigas que enviavam divida.origem.
-  if (!data || typeof data !== "object") return;
-
-  const divida = data.divida;
-  if (divida && typeof divida === "object" && !Array.isArray(divida)) {
-    // Compatibilidade: se origem (legado) vier como texto humano, preserve em origem_label.
-    if (typeof divida.origem === "string" && divida.origem.trim() && (typeof divida.origem_label !== "string" || !divida.origem_label.trim())) {
-      divida.origem_label = divida.origem.trim();
-    }
-
-    // Garanta que os novos campos existam como string (mesmo que vazias),
-    // para o modelo/verificadores enxergarem o contrato de forma explícita.
-    if (divida.origem_categoria === undefined) divida.origem_categoria = "";
-    if (divida.origem_subtipo === undefined) divida.origem_subtipo = "";
-    if (divida.origem_label === undefined) divida.origem_label = "";
-
-    // Normalização leve (sem inferir conteúdo):
-    if (typeof divida.origem_categoria === "string") divida.origem_categoria = divida.origem_categoria.trim();
-    if (typeof divida.origem_subtipo === "string") divida.origem_subtipo = divida.origem_subtipo.trim();
-    if (typeof divida.origem_label === "string") divida.origem_label = divida.origem_label.trim();
-  }
-}
-
 
 function sanitizeInputData(data) {
   const out = {};
